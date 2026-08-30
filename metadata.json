@@ -1,0 +1,6 @@
+{
+  "name": "Safa",
+  "description": "Luxury Islamic companion app in polished gold and midnight navy featuring accurate prayer times with live countdown, full offline Qibla compass, Quran with audio recitation, categorized Duas, digital Tasbih, prayer streak tracking, ML prayer mat alarm verification, and Islamic learning.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
