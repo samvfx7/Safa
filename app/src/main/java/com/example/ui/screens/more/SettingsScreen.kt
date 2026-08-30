@@ -477,6 +477,47 @@ fun SettingsScreen(
                     }
                 }
             }
+            
+            // Asr Method Toggle
+            item {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(SafaSpacing.cardRadius),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                    border = BorderStroke(1.dp, safaColors.goldBorder.copy(alpha = 0.3f))
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(SafaSpacing.cardContentPadding),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "Hanafi Asr Time",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = safaColors.textPrimary
+                            )
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = "Use later Asr time (Shadow Length = 2)",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = safaColors.textSecondary
+                            )
+                        }
+                        Switch(
+                            checked = settings.isHanafiAsr,
+                            onCheckedChange = { settingsRepository.updateAsrMethod(it) },
+                            colors = SwitchDefaults.colors(
+                                checkedThumbColor = safaColors.goldPrimary,
+                                checkedTrackColor = safaColors.goldPrimary.copy(alpha = 0.3f)
+                            )
+                        )
+                    }
+                }
+            }
 
             // Prayer Alerts & Notifications
             item {

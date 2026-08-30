@@ -11,6 +11,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -159,13 +160,15 @@ fun SurahDetailScreen(
             )
         },
         bottomBar = {
-            QuranAudioBottomBar(
-                playerState = uiState.playerState,
-                onTogglePlayPause = { viewModel.togglePlayPause() },
-                onNextSurah = { viewModel.playNextSurah() },
-                onPreviousSurah = { viewModel.playPreviousSurah() },
-                onOpenFullPlayer = { viewModel.setFullPlayerModalVisible(true) }
-            )
+            Box(modifier = Modifier.padding(bottom = 104.dp)) {
+                QuranAudioBottomBar(
+                    playerState = uiState.playerState,
+                    onTogglePlayPause = { viewModel.togglePlayPause() },
+                    onNextSurah = { viewModel.playNextSurah() },
+                    onPreviousSurah = { viewModel.playPreviousSurah() },
+                    onOpenFullPlayer = { viewModel.setFullPlayerModalVisible(true) }
+                )
+            }
         }
     ) { paddingValues ->
         if (uiState.isLoadingAyahs || surah == null) {
@@ -183,6 +186,7 @@ fun SurahDetailScreen(
                     .fillMaxSize()
                     .padding(paddingValues)
                     .padding(horizontal = SafaSpacing.screenHorizontalPadding),
+                contentPadding = PaddingValues(bottom = 200.dp, top = 8.dp),
                 verticalArrangement = Arrangement.spacedBy(SafaSpacing.md)
             ) {
                 // Surah Header Banner

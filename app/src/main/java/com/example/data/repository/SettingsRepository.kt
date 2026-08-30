@@ -13,6 +13,7 @@ data class AppSettings(
     val longitude: Double = -0.1278,
     val calculationMethodId: Int = 2, // 2 = ISNA, 1 = Karachi, 3 = MWL, 4 = Makkah, 5 = Egyptian
     val calculationMethodName: String = "Islamic Society of North America (ISNA)",
+    val isHanafiAsr: Boolean = false,
     val notifyFajr: Boolean = true,
     val notifyDhuhr: Boolean = true,
     val notifyAsr: Boolean = true,
@@ -43,6 +44,7 @@ class SettingsRepository(context: Context) {
             calculationMethodId = prefs.getInt("calc_method_id", 2),
             calculationMethodName = prefs.getString("calc_method_name", "Islamic Society of North America (ISNA)")
                 ?: "Islamic Society of North America (ISNA)",
+            isHanafiAsr = prefs.getBoolean("hanafi_asr", false),
             notifyFajr = prefs.getBoolean("notify_fajr", true),
             notifyDhuhr = prefs.getBoolean("notify_dhuhr", true),
             notifyAsr = prefs.getBoolean("notify_asr", true),
@@ -81,6 +83,15 @@ class SettingsRepository(context: Context) {
         _settingsState.value = _settingsState.value.copy(
             calculationMethodId = id,
             calculationMethodName = name
+        )
+    }
+
+    fun updateAsrMethod(isHanafi: Boolean) {
+        prefs.edit()
+            .putBoolean("hanafi_asr", isHanafi)
+            .apply()
+        _settingsState.value = _settingsState.value.copy(
+            isHanafiAsr = isHanafi
         )
     }
 

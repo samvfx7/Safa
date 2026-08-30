@@ -4,6 +4,7 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -116,6 +117,7 @@ fun BookmarksScreen(
                     .fillMaxSize()
                     .padding(paddingValues)
                     .padding(horizontal = SafaSpacing.screenHorizontalPadding),
+                contentPadding = PaddingValues(bottom = 32.dp, top = 8.dp),
                 verticalArrangement = Arrangement.spacedBy(SafaSpacing.sm)
             ) {
                 items(bookmarks, key = { it.id }) { bookmark ->

@@ -58,6 +58,19 @@ class AudioPlayerHelper(private val context: Context) {
     // Callback for navigating or resolving next surah in continuous mode
     var onSurahAutoAdvance: ((Int) -> Unit)? = null
 
+    private fun startMediaService() {
+        try {
+            val intent = android.content.Intent(context, QuranMediaService::class.java)
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                context.startForegroundService(intent)
+            } else {
+                context.startService(intent)
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+
     fun playFullSurah(
         surahNumber: Int,
         surahEnglishName: String,
@@ -458,6 +471,7 @@ class AudioPlayerHelper(private val context: Context) {
 
     private fun startProgressUpdates() {
         stopProgressUpdates()
+        startMediaService() // Launch Foreground Service for Dynamic Island/Notifications
         progressJob = scope.launch {
             while (isActive) {
                 try {

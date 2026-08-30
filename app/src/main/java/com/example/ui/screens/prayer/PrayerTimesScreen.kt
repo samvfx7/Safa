@@ -22,6 +22,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -195,6 +196,7 @@ fun PrayerTimesScreen(
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(horizontal = SafaSpacing.screenHorizontalPadding),
+                contentPadding = PaddingValues(bottom = 110.dp, top = 8.dp),
                 verticalArrangement = Arrangement.spacedBy(SafaSpacing.md)
             ) {
                 // Location & Hijri Badge
@@ -308,7 +310,23 @@ fun PrayerTimesScreen(
                     Spacer(modifier = Modifier.height(24.dp))
                 }
             }
-
+            
+            // Fading edge at the top
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(16.dp)
+                    .background(
+                        Brush.verticalGradient(
+                            colors = listOf(
+                                MaterialTheme.colorScheme.background,
+                                Color.Transparent
+                            )
+                        )
+                    )
+                    .align(Alignment.TopCenter)
+            )
+            
             if (uiState.showCityDialog) {
                 CitySelectionDialog(
                     currentCity = settings.city,

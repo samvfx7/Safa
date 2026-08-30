@@ -7,6 +7,7 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -104,13 +105,15 @@ fun QuranScreen(
             )
         },
         bottomBar = {
-            QuranAudioBottomBar(
-                playerState = uiState.playerState,
-                onTogglePlayPause = { viewModel.togglePlayPause() },
-                onNextSurah = { viewModel.playNextSurah() },
-                onPreviousSurah = { viewModel.playPreviousSurah() },
-                onOpenFullPlayer = { viewModel.setFullPlayerModalVisible(true) }
-            )
+            Box(modifier = Modifier.padding(bottom = 104.dp)) {
+                QuranAudioBottomBar(
+                    playerState = uiState.playerState,
+                    onTogglePlayPause = { viewModel.togglePlayPause() },
+                    onNextSurah = { viewModel.playNextSurah() },
+                    onPreviousSurah = { viewModel.playPreviousSurah() },
+                    onOpenFullPlayer = { viewModel.setFullPlayerModalVisible(true) }
+                )
+            }
         }
     ) { paddingValues ->
         Column(
@@ -361,6 +364,7 @@ fun QuranScreen(
             // Surah List
             LazyColumn(
                 modifier = Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(bottom = 200.dp, top = 8.dp),
                 verticalArrangement = Arrangement.spacedBy(SafaSpacing.sm)
             ) {
                 items(uiState.filteredSurahs, key = { it.number }) { surah ->

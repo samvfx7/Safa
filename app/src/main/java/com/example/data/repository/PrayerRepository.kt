@@ -67,7 +67,7 @@ class PrayerRepository(
             }
 
             val methodId = if (settings.calculationMethodId == 99) 3 else settings.calculationMethodId
-            val schoolId = if (settings.calculationMethodId == 99) 1 else 0
+            val schoolId = if (settings.isHanafiAsr) 1 else 0
 
             val timestamp = System.currentTimeMillis() / 1000
             val response = try {
