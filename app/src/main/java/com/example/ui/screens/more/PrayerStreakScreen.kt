@@ -109,9 +109,9 @@ fun PrayerStreakScreen(
                             .background(
                                 Brush.linearGradient(
                                     colors = if (safaColors.isLuxuryNavy) {
-                                        listOf(Color(0xFF16254F), Color(0xFF0B132B), Color(0xFF070D1E))
+                                        listOf(safaColors.navyElevated, safaColors.navySurface, safaColors.navyBackground)
                                     } else {
-                                        listOf(Color(0xFF0B132B), Color(0xFF16254F))
+                                        listOf(safaColors.navyElevated, safaColors.navySurface)
                                     }
                                 )
                             )
@@ -137,12 +137,12 @@ fun PrayerStreakScreen(
                                 text = "${uiState.currentStreak} Days",
                                 style = MaterialTheme.typography.displayLarge,
                                 fontWeight = FontWeight.Bold,
-                                color = safaColors.goldPrimary
+                                color = if (safaColors.isLuxuryNavy) safaColors.goldPrimary else safaColors.textGold
                             )
                             Text(
                                 text = "Current Consecutive Prayer Streak",
                                 style = MaterialTheme.typography.titleSmall,
-                                color = safaColors.goldChampagne.copy(alpha = 0.9f)
+                                color = if (safaColors.isLuxuryNavy) safaColors.goldChampagne.copy(alpha = 0.9f) else safaColors.textSecondary
                             )
                         }
                     }

@@ -71,15 +71,23 @@ class PrayerRepository(
 
             val timestamp = System.currentTimeMillis() / 1000
             val response = try {
-                ApiClient.aladhanService.getTimingsByCoordinates(
-                    timestamp = timestamp,
-                    latitude = settings.latitude,
-                    longitude = settings.longitude,
-                    method = methodId,
-                    school = schoolId
-                )
+                if (settings.latitude == 0.0 && settings.longitude == 0.0) {
+                    ApiClient.aladhanService.getTimingsByCity(
+                        city = settings.city,
+                        country = settings.country,
+                        method = methodId,
+                        school = schoolId
+                    )
+                } else {
+                    ApiClient.aladhanService.getTimingsByCoordinates(
+                        timestamp = timestamp,
+                        latitude = settings.latitude,
+                        longitude = settings.longitude,
+                        method = methodId,
+                        school = schoolId
+                    )
+                }
             } catch (e: Exception) {
-                // Fallback to city
                 ApiClient.aladhanService.getTimingsByCity(
                     city = settings.city,
                     country = settings.country,
@@ -97,6 +105,13 @@ class PrayerRepository(
                     "1446 AH"
                 }
 
+                val resolvedLat = response.data.meta?.latitude ?: settings.latitude
+                val resolvedLng = response.data.meta?.longitude ?: settings.longitude
+
+                if (settings.latitude == 0.0 && settings.longitude == 0.0 && resolvedLat != 0.0) {
+                    settingsRepository.updateLocation(settings.city, settings.country, resolvedLat, resolvedLng)
+                }
+
                 val entity = PrayerEntity(
                     date = today,
                     fajr = cleanTime(timings.fajr),
@@ -106,16 +121,16 @@ class PrayerRepository(
                     maghrib = cleanTime(timings.maghrib),
                     isha = cleanTime(timings.isha),
                     locationName = "${settings.city}, ${settings.country}",
-                    latitude = settings.latitude,
-                    longitude = settings.longitude,
+                    latitude = resolvedLat,
+                    longitude = resolvedLng,
                     calculationMethod = settings.calculationMethodName,
-                    hijriDate = hijriString
+                    hijriDate = hijriString,
+                    timezone = response.data.meta?.timezone ?: java.util.TimeZone.getDefault().id
                 )
 
                 prayerDao.insertPrayerTimes(entity)
                 return@withContext Result.success(entity)
             } else {
-                // Generate realistic fallback timings for current location
                 val fallback = generateFallbackPrayerTimes(today, settings)
                 prayerDao.insertPrayerTimes(fallback)
                 return@withContext Result.success(fallback)
@@ -137,30 +152,34 @@ class PrayerRepository(
     }
 
     private fun cleanTime(raw: String): String {
-        // e.g. "05:12 (BST)" -> "05:12"
         return raw.split(" ")[0].trim()
     }
 
     private fun generateFallbackPrayerTimes(today: String, settings: AppSettings): PrayerEntity {
-        val isHanafi = settings.calculationMethodId == 99
+        val isHanafi = settings.isHanafiAsr
         return PrayerEntity(
             date = today,
             fajr = "05:15",
             sunrise = "06:35",
             dhuhr = "13:10",
-            asr = if (isHanafi) "17:45" else "16:45", // Hanafi Asr is later (shadow angle = 2x)
+            asr = if (isHanafi) "17:45" else "16:45",
             maghrib = "19:40",
             isha = "21:05",
             locationName = "${settings.city}, ${settings.country}",
             latitude = settings.latitude,
             longitude = settings.longitude,
             calculationMethod = settings.calculationMethodName,
-            hijriDate = "14 Safar 1448 AH"
+            hijriDate = "14 Safar 1448 AH",
+            timezone = java.util.TimeZone.getDefault().id
         )
     }
 
     fun calculateNextPrayer(prayerEntity: PrayerEntity, now: Calendar = Calendar.getInstance()): NextPrayerInfo {
-        val todayStr = dateFormat.format(now.time)
+        val targetTz = java.util.TimeZone.getTimeZone(prayerEntity.timezone)
+        val tzDateFormat = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).apply {
+            timeZone = targetTz
+        }
+        val todayStr = tzDateFormat.format(now.time)
         val prayerTimes = listOf(
             Triple("Fajr", "الفجر", prayerEntity.fajr),
             Triple("Sunrise", "الشروق", prayerEntity.sunrise),
@@ -174,9 +193,9 @@ class PrayerRepository(
 
         for (i in prayerTimes.indices) {
             val (name, arName, timeStr) = prayerTimes[i]
-            if (name == "Sunrise") continue // Skip sunrise as prayer countdown target if desired, or keep as milestone
+            if (name == "Sunrise") continue
 
-            val prayerCal = parsePrayerTimeToCalendar(todayStr, timeStr)
+            val prayerCal = parsePrayerTimeToCalendar(todayStr, timeStr, prayerEntity.timezone)
             if (prayerCal.timeInMillis > nowMillis) {
                 val diffSec = (prayerCal.timeInMillis - nowMillis) / 1000
                 val hours = diffSec / 3600
@@ -191,11 +210,10 @@ class PrayerRepository(
 
                 val time12 = formatTo12h(timeStr)
 
-                // Progress calculation
                 val prevCal = if (i > 0) {
-                    parsePrayerTimeToCalendar(todayStr, prayerTimes[i - 1].third)
+                    parsePrayerTimeToCalendar(todayStr, prayerTimes[i - 1].third, prayerEntity.timezone)
                 } else {
-                    parsePrayerTimeToCalendar(todayStr, prayerTimes.last().third).apply {
+                    parsePrayerTimeToCalendar(todayStr, prayerTimes.last().third, prayerEntity.timezone).apply {
                         add(Calendar.DAY_OF_YEAR, -1)
                     }
                 }
@@ -214,8 +232,7 @@ class PrayerRepository(
             }
         }
 
-        // If after Isha, next is tomorrow's Fajr
-        val tomorrowFajrCal = parsePrayerTimeToCalendar(todayStr, prayerEntity.fajr).apply {
+        val tomorrowFajrCal = parsePrayerTimeToCalendar(todayStr, prayerEntity.fajr, prayerEntity.timezone).apply {
             add(Calendar.DAY_OF_YEAR, 1)
         }
         val diffSec = (tomorrowFajrCal.timeInMillis - nowMillis) / 1000
@@ -225,13 +242,18 @@ class PrayerRepository(
 
         val formatted = "In ${hours}h ${mins}m"
 
+        val todayIshaCal = parsePrayerTimeToCalendar(todayStr, prayerEntity.isha, prayerEntity.timezone)
+        val totalWindow = (tomorrowFajrCal.timeInMillis - todayIshaCal.timeInMillis).toFloat()
+        val elapsed = (nowMillis - todayIshaCal.timeInMillis).toFloat()
+        val progress = if (totalWindow > 0f) (elapsed / totalWindow).coerceIn(0f, 1f) else 0.5f
+
         return NextPrayerInfo(
             nextPrayerName = "Fajr",
             nextPrayerArabicName = "الفجر",
             nextPrayerTime12h = formatTo12h(prayerEntity.fajr),
             remainingSeconds = diffSec,
             formattedRemaining = formatted,
-            progress = 0.5f
+            progress = progress
         )
     }
 
@@ -240,7 +262,11 @@ class PrayerRepository(
         log: PrayerLogEntity?,
         now: Calendar = Calendar.getInstance()
     ): List<PrayerTimeItem> {
-        val todayStr = dateFormat.format(now.time)
+        val targetTz = java.util.TimeZone.getTimeZone(prayerEntity.timezone)
+        val tzDateFormat = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).apply {
+            timeZone = targetTz
+        }
+        val todayStr = tzDateFormat.format(now.time)
         val nowMillis = now.timeInMillis
 
         val rawList = listOf(
@@ -255,7 +281,7 @@ class PrayerRepository(
         var foundNext = false
 
         return rawList.map { (name, arName, timeStr) ->
-            val prayerCal = parsePrayerTimeToCalendar(todayStr, timeStr)
+            val prayerCal = parsePrayerTimeToCalendar(todayStr, timeStr, prayerEntity.timezone)
             val isPassed = prayerCal.timeInMillis <= nowMillis
             var isNext = false
 
@@ -305,7 +331,6 @@ class PrayerRepository(
         if (updated.maghribDone) completedCount++
         if (updated.ishaDone) completedCount++
 
-        // Calculate streak
         val currentStreak = calculateStreak(today, completedCount == 5)
 
         prayerLogDao.insertOrUpdatePrayerLog(
@@ -327,7 +352,7 @@ class PrayerRepository(
         while (true) {
             val dateKey = dateFormat.format(cal.time)
             val log = logMap[dateKey]
-            if (log != null && log.completedCount >= 4) { // At least 4 or 5 completed prayers
+            if (log != null && log.completedCount >= 4) {
                 streak++
                 cal.add(Calendar.DAY_OF_YEAR, -1)
             } else {
@@ -337,8 +362,9 @@ class PrayerRepository(
         return streak
     }
 
-    private fun parsePrayerTimeToCalendar(dateStr: String, timeStr: String): Calendar {
-        val cal = Calendar.getInstance()
+    private fun parsePrayerTimeToCalendar(dateStr: String, timeStr: String, timezoneStr: String): Calendar {
+        val tz = java.util.TimeZone.getTimeZone(timezoneStr)
+        val cal = Calendar.getInstance(tz)
         try {
             val parts = timeStr.split(":")
             val hour = parts[0].toInt()

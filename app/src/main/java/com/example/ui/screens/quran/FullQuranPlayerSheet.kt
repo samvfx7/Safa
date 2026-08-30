@@ -25,6 +25,8 @@ import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.FastForward
 import androidx.compose.material.icons.filled.FastRewind
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.CloudDownload
 import androidx.compose.material.icons.filled.FormatListNumbered
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.Pause
@@ -82,6 +84,10 @@ import com.example.ui.theme.SafaSpacing
 fun FullQuranPlayerSheet(
     playerState: QuranAudioPlayerState,
     allSurahs: List<Surah>,
+    isAudioDownloaded: Boolean,
+    downloadProgress: Float?,
+    onDownloadAudio: () -> Unit,
+    onDeleteAudio: () -> Unit,
     onDismiss: () -> Unit,
     onTogglePlayPause: () -> Unit,
     onNextSurah: () -> Unit,
@@ -463,6 +469,29 @@ fun FullQuranPlayerSheet(
                     onClick = { showSleepTimerDialog = true },
                     isActive = playerState.sleepTimerMinutesRemaining != null
                 )
+
+                // Download/Offline Audio status
+                if (downloadProgress != null) {
+                    PlayerActionButton(
+                        icon = Icons.Default.CloudDownload,
+                        label = "${(downloadProgress * 100).toInt()}%",
+                        onClick = { /* Non-interactive during progress */ },
+                        isActive = true
+                    )
+                } else if (isAudioDownloaded) {
+                    PlayerActionButton(
+                        icon = Icons.Default.CheckCircle,
+                        label = "Saved Offline",
+                        onClick = onDeleteAudio,
+                        isActive = true
+                    )
+                } else {
+                    PlayerActionButton(
+                        icon = Icons.Default.CloudDownload,
+                        label = "Download",
+                        onClick = onDownloadAudio
+                    )
+                }
             }
         }
     }

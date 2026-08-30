@@ -78,6 +78,8 @@ fun SurahDetailScreen(
     modifier: Modifier = Modifier
 ) {
     val uiState by viewModel.uiState.collectAsState()
+    val audioDownloadProgress by viewModel.audioDownloadProgress.collectAsState()
+    val downloadedAudioSurahs by viewModel.downloadedAudioSurahs.collectAsState()
     val safaColors = LocalSafaColors.current
 
     LaunchedEffect(surahNumber) {
@@ -202,11 +204,11 @@ fun SurahDetailScreen(
                                 .fillMaxWidth()
                                 .background(
                                     Brush.linearGradient(
-                                        colors = listOf(
-                                            Color(0xFF2C1E14),
-                                            Color(0xFF1E140C),
-                                            Color(0xFF140D07)
-                                        )
+                                        colors = if (safaColors.isLuxuryNavy) {
+                                            listOf(safaColors.navyElevated, safaColors.navySurface, safaColors.navyBackground)
+                                        } else {
+                                            listOf(safaColors.navyElevated, safaColors.navySurface)
+                                        }
                                     )
                                 )
                                 .padding(SafaSpacing.cardContentPadding),
@@ -216,14 +218,14 @@ fun SurahDetailScreen(
                                 Text(
                                     text = surah.name,
                                     style = ArabicDisplayStyle,
-                                    color = safaColors.goldPrimary
+                                    color = if (safaColors.isLuxuryNavy) safaColors.goldPrimary else safaColors.textGold
                                 )
                                 Spacer(modifier = Modifier.height(4.dp))
                                 Text(
                                     text = "${surah.englishName} • ${surah.englishNameTranslation}",
                                     style = MaterialTheme.typography.titleMedium,
                                     fontWeight = FontWeight.Bold,
-                                    color = Color(0xFFFDFBF7)
+                                    color = safaColors.textPrimary
                                 )
                                 Spacer(modifier = Modifier.height(4.dp))
                                 Row(
@@ -233,7 +235,7 @@ fun SurahDetailScreen(
                                     Text(
                                         text = "${surah.revelationType.uppercase()} • ${surah.numberOfAyahs} AYAHS",
                                         style = MaterialTheme.typography.labelSmall,
-                                        color = safaColors.goldChampagne.copy(alpha = 0.8f),
+                                        color = if (safaColors.isLuxuryNavy) safaColors.goldChampagne.copy(alpha = 0.8f) else safaColors.textSecondary,
                                         letterSpacing = 1.sp
                                     )
                                     if (isDownloaded) {
@@ -366,9 +368,18 @@ fun SurahDetailScreen(
 
     // Full Screen Audio Player Sheet
     if (uiState.showFullPlayerModal) {
+        val currentSurahNumber = uiState.playerState.currentSurahNumber ?: surahNumber
+        val progressKey = "${uiState.playerState.reciter.id}_$currentSurahNumber"
+        val downloadProgress = audioDownloadProgress[progressKey]
+        val isAudioDownloaded = downloadedAudioSurahs.contains(currentSurahNumber)
+
         FullQuranPlayerSheet(
             playerState = uiState.playerState,
             allSurahs = viewModel.getAllSurahs(),
+            isAudioDownloaded = isAudioDownloaded,
+            downloadProgress = downloadProgress,
+            onDownloadAudio = { viewModel.downloadSurahAudio(currentSurahNumber) },
+            onDeleteAudio = { viewModel.deleteSurahAudio(currentSurahNumber) },
             onDismiss = { viewModel.setFullPlayerModalVisible(false) },
             onTogglePlayPause = { viewModel.togglePlayPause() },
             onNextSurah = { viewModel.playNextSurah() },

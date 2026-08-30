@@ -53,6 +53,18 @@ class PrayerViewModel(application: Application) : AndroidViewModel(application) 
     init {
         loadData()
         startLiveCountdownTicker()
+
+        viewModelScope.launch {
+            var lastIsHanafi = settingsRepository.settingsState.value.isHanafiAsr
+            var lastCalcId = settingsRepository.settingsState.value.calculationMethodId
+            settingsRepository.settingsState.collect { settings ->
+                if (settings.isHanafiAsr != lastIsHanafi || settings.calculationMethodId != lastCalcId) {
+                    lastIsHanafi = settings.isHanafiAsr
+                    lastCalcId = settings.calculationMethodId
+                    loadData(forceRefresh = true)
+                }
+            }
+        }
     }
 
     fun loadData(forceRefresh: Boolean = false) {

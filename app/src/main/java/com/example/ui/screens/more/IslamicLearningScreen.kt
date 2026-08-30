@@ -40,11 +40,16 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Tab
 import androidx.compose.material3.TabRow
+import androidx.compose.material3.ScrollableTabRow
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.TabRowDefaults
 import androidx.compose.material3.TabRowDefaults.tabIndicatorOffset
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -77,7 +82,7 @@ fun IslamicLearningScreen(
     modifier: Modifier = Modifier
 ) {
     var selectedTab by remember { mutableIntStateOf(0) }
-    val tabs = listOf("5 Pillars", "Wudu Guide", "Salah Guide", "Articles of Faith")
+    val tabs = listOf("5 Pillars", "Wudu Guide", "Salah Guide", "Articles of Faith", "Spiritual Quiz")
     val safaColors = LocalSafaColors.current
 
     Scaffold(
@@ -176,10 +181,11 @@ fun IslamicLearningScreen(
                 }
             }
 
-            TabRow(
+            ScrollableTabRow(
                 selectedTabIndex = selectedTab,
                 containerColor = MaterialTheme.colorScheme.background,
                 contentColor = safaColors.goldPrimary,
+                edgePadding = 16.dp,
                 indicator = { tabPositions ->
                     TabRowDefaults.SecondaryIndicator(
                         Modifier.tabIndicatorOffset(tabPositions[selectedTab]),
@@ -210,6 +216,7 @@ fun IslamicLearningScreen(
                 1 -> WuduGuideList()
                 2 -> SalahGuideList()
                 3 -> SixArticlesList()
+                4 -> IslamicQuizView()
             }
         }
     }
@@ -442,6 +449,382 @@ private fun ExpandableTopicCard(topic: LearningTopic) {
                 color = safaColors.textPrimary,
                 lineHeight = 22.sp
             )
+        }
+    }
+}
+
+data class QuizQuestion(
+    val id: Int,
+    val question: String,
+    val options: List<String>,
+    val correctIndex: Int,
+    val explanation: String
+)
+
+@Composable
+private fun IslamicQuizView() {
+    val safaColors = LocalSafaColors.current
+    val questions = remember {
+        listOf(
+            QuizQuestion(
+                id = 1,
+                question = "What is the first pillar of Islam, declaring absolute Oneness of Allah?",
+                options = listOf(
+                    "Salah (Daily Prayer)",
+                    "Shahadah (Declaration of Faith)",
+                    "Zakat (Purifying Charity)",
+                    "Sawm (Fasting Ramadan)"
+                ),
+                correctIndex = 1,
+                explanation = "Shahadah is the testimony of faith: 'La ilaha illa Allah, Muhammadun Rasul Allah' (There is no god but Allah, Muhammad is His messenger). It is the gateway to Islam."
+            ),
+            QuizQuestion(
+                id = 2,
+                question = "Which Surah is the 'Mother of the Quran' and recited in every unit of prayer?",
+                options = listOf(
+                    "Surah Al-Ikhlas (Sincerity)",
+                    "Surah Al-Fatihah (The Opening)",
+                    "Surah Al-Baqarah (The Cow)",
+                    "Surah Al-Yasin"
+                ),
+                correctIndex = 1,
+                explanation = "Surah Al-Fatihah is a mandatory pillar of prayer. No prayer is valid without reciting it in every single Rak'ah (unit)."
+            ),
+            QuizQuestion(
+                id = 3,
+                question = "What standard percentage of surplus wealth is due for annual Zakat (Almsgiving)?",
+                options = listOf(
+                    "1.0%",
+                    "2.5%",
+                    "5.0%",
+                    "10.0%"
+                ),
+                correctIndex = 1,
+                explanation = "Surplus wealth (exceeding the Nisab threshold) held for one lunar year requires a Zakat payment of 2.5% to purify assets and aid the needy."
+            ),
+            QuizQuestion(
+                id = 4,
+                question = "During which sacred month was the Quran first revealed to Prophet Muhammad (pbuh)?",
+                options = listOf(
+                    "Muharram",
+                    "Rajab",
+                    "Ramadan",
+                    "Dhul-Hijjah"
+                ),
+                correctIndex = 2,
+                explanation = "The Quran was revealed during Ramadan on Laylat al-Qadr (the Night of Decree). Ramadan is the month of intense spiritual focus and fasting."
+            ),
+            QuizQuestion(
+                id = 5,
+                question = "The direction of Qibla points Muslims worldwide toward which sacred building?",
+                options = listOf(
+                    "The Al-Aqsa Mosque",
+                    "The Prophet's Mosque in Medina",
+                    "The Holy Kaaba in Mecca",
+                    "The Dome of the Rock"
+                ),
+                correctIndex = 2,
+                explanation = "The Qibla is the direction pointing towards the Kaaba in Mecca, Saudi Arabia, establishing unity of worship for Muslims globally."
+            )
+        )
+    }
+
+    var currentQuestionIdx by remember { mutableIntStateOf(0) }
+    var selectedOptionIdx by remember { mutableStateOf<Int?>(null) }
+    var isAnswerChecked by remember { mutableStateOf(false) }
+    var score by remember { mutableIntStateOf(0) }
+    var showResults by remember { mutableStateOf(false) }
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(horizontal = SafaSpacing.screenHorizontalPadding)
+    ) {
+        if (!showResults) {
+            val q = questions[currentQuestionIdx]
+
+            // Top Status Block
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "QUESTION ${currentQuestionIdx + 1} OF ${questions.size}",
+                    style = MaterialTheme.typography.labelSmall,
+                    fontWeight = FontWeight.Bold,
+                    color = safaColors.goldPrimary,
+                    letterSpacing = 1.sp
+                )
+                Text(
+                    text = "Score: $score",
+                    style = MaterialTheme.typography.labelSmall,
+                    fontWeight = FontWeight.Bold,
+                    color = safaColors.textSecondary
+                )
+            }
+
+            // Question Progress Bar
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(4.dp)
+                    .background(safaColors.navyBorder.copy(alpha = 0.2f), RoundedCornerShape(2.dp))
+            ) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth(((currentQuestionIdx + 1).toFloat() / questions.size.toFloat()))
+                        .height(4.dp)
+                        .background(safaColors.goldPrimary, RoundedCornerShape(2.dp))
+                )
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            // Question Text Card
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(SafaSpacing.cardRadius),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                border = BorderStroke(1.dp, safaColors.goldBorder.copy(alpha = 0.3f))
+            ) {
+                Text(
+                    text = q.question,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = safaColors.textPrimary,
+                    modifier = Modifier.padding(16.dp),
+                    lineHeight = 24.sp
+                )
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            // Scrollable Options List
+            Column(
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+                modifier = Modifier.weight(1f)
+            ) {
+                q.options.forEachIndexed { idx, optionText ->
+                    val isSelected = selectedOptionIdx == idx
+                    val isCorrect = idx == q.correctIndex
+                    val isIncorrect = isSelected && !isCorrect
+
+                    val optionColor = when {
+                        isAnswerChecked && isCorrect -> Color(0xFF2E7D32).copy(alpha = 0.15f) // Green background
+                        isAnswerChecked && isIncorrect -> Color(0xFFC62828).copy(alpha = 0.15f) // Red background
+                        isSelected -> safaColors.goldPrimary.copy(alpha = 0.15f)
+                        else -> MaterialTheme.colorScheme.surface
+                    }
+
+                    val borderColor = when {
+                        isAnswerChecked && isCorrect -> Color(0xFF2E7D32)
+                        isAnswerChecked && isIncorrect -> Color(0xFFC62828)
+                        isSelected -> safaColors.goldPrimary
+                        else -> safaColors.navyBorder.copy(alpha = 0.3f)
+                    }
+
+                    Card(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable(enabled = !isAnswerChecked) {
+                                selectedOptionIdx = idx
+                            },
+                        shape = RoundedCornerShape(SafaSpacing.cardRadius),
+                        colors = CardDefaults.cardColors(containerColor = optionColor),
+                        border = BorderStroke(1.dp, borderColor)
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(14.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(24.dp)
+                                    .background(
+                                        if (isSelected) safaColors.goldPrimary else safaColors.navyBorder.copy(alpha = 0.2f),
+                                        CircleShape
+                                    ),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = ('A'.code + idx).toChar().toString(),
+                                    style = MaterialTheme.typography.labelSmall,
+                                    fontWeight = FontWeight.Bold,
+                                    color = if (isSelected) SafaNavyDark else safaColors.textPrimary
+                                )
+                            }
+
+                            Spacer(modifier = Modifier.width(12.dp))
+
+                            Text(
+                                text = optionText,
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = safaColors.textPrimary,
+                                modifier = Modifier.weight(1f)
+                            )
+                        }
+                    }
+                }
+
+                // Answer explanation banner
+                if (isAnswerChecked) {
+                    val wasCorrect = selectedOptionIdx == q.correctIndex
+                    Card(
+                        modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                        shape = RoundedCornerShape(12.dp),
+                        colors = CardDefaults.cardColors(
+                            containerColor = if (wasCorrect) Color(0xFFE8F5E9).copy(alpha = 0.08f) else Color(0xFFFFEBEE).copy(alpha = 0.08f)
+                        ),
+                        border = BorderStroke(1.dp, if (wasCorrect) Color(0xFF2E7D32).copy(alpha = 0.3f) else Color(0xFFC62828).copy(alpha = 0.3f))
+                    ) {
+                        Column(modifier = Modifier.padding(12.dp)) {
+                            Text(
+                                text = if (wasCorrect) "✓ Correct Answer" else "✗ Incorrect",
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.Bold,
+                                color = if (wasCorrect) Color(0xFF4CAF50) else Color(0xFFEF5350)
+                            )
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = q.explanation,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = safaColors.textSecondary,
+                                lineHeight = 18.sp
+                            )
+                        }
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            // Bottom Action buttons
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(bottom = 24.dp),
+                horizontalArrangement = Arrangement.End
+            ) {
+                if (!isAnswerChecked) {
+                    Button(
+                        onClick = {
+                            if (selectedOptionIdx != null) {
+                                isAnswerChecked = true
+                                if (selectedOptionIdx == q.correctIndex) {
+                                    score++
+                                }
+                            }
+                        },
+                        enabled = selectedOptionIdx != null,
+                        colors = ButtonDefaults.buttonColors(containerColor = safaColors.goldPrimary),
+                        shape = RoundedCornerShape(SafaSpacing.pillRadius),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(
+                            text = "Check Answer",
+                            color = SafaNavyDark,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                } else {
+                    Button(
+                        onClick = {
+                            if (currentQuestionIdx < questions.lastIndex) {
+                                currentQuestionIdx++
+                                selectedOptionIdx = null
+                                isAnswerChecked = false
+                            } else {
+                                showResults = true
+                            }
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = safaColors.goldPrimary),
+                        shape = RoundedCornerShape(SafaSpacing.pillRadius),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(
+                            text = if (currentQuestionIdx == questions.lastIndex) "View Results" else "Next Question",
+                            color = SafaNavyDark,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
+            }
+        } else {
+            // Results View
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(vertical = 32.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(110.dp)
+                        .background(safaColors.goldGlow, CircleShape),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = "$score/${questions.size}",
+                        style = MaterialTheme.typography.headlineLarge,
+                        fontWeight = FontWeight.Bold,
+                        color = safaColors.goldPrimary
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(24.dp))
+
+                Text(
+                    text = when {
+                        score == questions.size -> "Subhan'Allah! Perfect Score!"
+                        score >= 3 -> "Mash'Allah! Excellent Knowledge!"
+                        else -> "Keep Learning and Reflecting!"
+                    },
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold,
+                    color = safaColors.textPrimary,
+                    textAlign = TextAlign.Center
+                )
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                Text(
+                    text = "You answered $score out of ${questions.size} questions correctly. Seek knowledge to illuminate your heart.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = safaColors.textSecondary,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.padding(horizontal = 24.dp),
+                    lineHeight = 22.sp
+                )
+
+                Spacer(modifier = Modifier.height(32.dp))
+
+                Button(
+                    onClick = {
+                        currentQuestionIdx = 0
+                        selectedOptionIdx = null
+                        isAnswerChecked = false
+                        score = 0
+                        showResults = false
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = safaColors.goldPrimary),
+                    shape = RoundedCornerShape(SafaSpacing.pillRadius)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Refresh,
+                        contentDescription = "Restart",
+                        tint = SafaNavyDark,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = "Take Quiz Again",
+                        color = SafaNavyDark,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            }
         }
     }
 }

@@ -19,6 +19,7 @@ data class PrayerEntity(
     val longitude: Double,
     val calculationMethod: String,
     val hijriDate: String,
+    val timezone: String = "UTC",
     val timestamp: Long = System.currentTimeMillis()
 )
 

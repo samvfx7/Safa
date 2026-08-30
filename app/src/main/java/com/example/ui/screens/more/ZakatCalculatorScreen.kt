@@ -123,9 +123,9 @@ fun ZakatCalculatorScreen(
                             .background(
                                 Brush.linearGradient(
                                     colors = if (safaColors.isLuxuryNavy) {
-                                        listOf(Color(0xFF16254F), Color(0xFF0B132B), Color(0xFF070D1E))
+                                        listOf(safaColors.navyElevated, safaColors.navySurface, safaColors.navyBackground)
                                     } else {
-                                        listOf(Color(0xFF0B132B), Color(0xFF16254F))
+                                        listOf(safaColors.navyElevated, safaColors.navySurface)
                                     }
                                 )
                             )
@@ -136,7 +136,7 @@ fun ZakatCalculatorScreen(
                                 text = "TOTAL ZAKAT DUE (2.5%)",
                                 style = MaterialTheme.typography.labelSmall,
                                 fontWeight = FontWeight.Bold,
-                                color = safaColors.goldChampagne,
+                                color = if (safaColors.isLuxuryNavy) safaColors.goldChampagne else safaColors.textGold,
                                 letterSpacing = 1.2.sp
                             )
                             Spacer(modifier = Modifier.height(6.dp))
@@ -144,7 +144,7 @@ fun ZakatCalculatorScreen(
                                 text = "$${String.format("%.2f", zakatState.zakatPayable)}",
                                 style = MaterialTheme.typography.displayMedium,
                                 fontWeight = FontWeight.Bold,
-                                color = Color(0xFFFDFBF7)
+                                color = safaColors.textPrimary
                             )
                             Spacer(modifier = Modifier.height(4.dp))
                             Text(
@@ -153,7 +153,7 @@ fun ZakatCalculatorScreen(
                                 else
                                     "Your net wealth is currently below the Nisab threshold.",
                                 style = MaterialTheme.typography.bodySmall,
-                                color = safaColors.goldChampagne.copy(alpha = 0.9f)
+                                color = if (safaColors.isLuxuryNavy) safaColors.goldChampagne.copy(alpha = 0.9f) else safaColors.textSecondary
                             )
                         }
                     }

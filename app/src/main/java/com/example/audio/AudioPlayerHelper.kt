@@ -105,7 +105,12 @@ class AudioPlayerHelper(private val context: Context) {
                         .setUsage(AudioAttributes.USAGE_MEDIA)
                         .build()
                 )
-                setDataSource(context, Uri.parse(url))
+                val localFile = QuranAudioDownloader.getAudioFile(context, reciter.id, surahNumber)
+                if (localFile != null) {
+                    setDataSource(context, Uri.fromFile(localFile))
+                } else {
+                    setDataSource(context, Uri.parse(url))
+                }
                 setOnPreparedListener { mp ->
                     try {
                         if (startPositionMs > 0L && startPositionMs < mp.duration) {

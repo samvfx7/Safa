@@ -239,9 +239,9 @@ private fun HadithOfTheDayCard(
                 .background(
                     Brush.linearGradient(
                         colors = if (safaColors.isLuxuryNavy) {
-                            listOf(Color(0xFF16254F), Color(0xFF0B132B), Color(0xFF070D1E))
+                            listOf(safaColors.navyElevated, safaColors.navySurface, safaColors.navyBackground)
                         } else {
-                            listOf(Color(0xFF0B132B), Color(0xFF16254F))
+                            listOf(safaColors.navyElevated, safaColors.navySurface)
                         }
                     )
                 )
@@ -265,17 +265,17 @@ private fun HadithOfTheDayCard(
                             text = "HADITH OF THE DAY",
                             style = MaterialTheme.typography.labelSmall,
                             fontWeight = FontWeight.Bold,
-                            color = safaColors.goldChampagne,
+                            color = if (safaColors.isLuxuryNavy) safaColors.goldChampagne else safaColors.textGold,
                             letterSpacing = 1.2.sp
                         )
                     }
 
                     Row {
                         IconButton(onClick = onCopy, modifier = Modifier.size(32.dp)) {
-                            Icon(Icons.Default.ContentCopy, contentDescription = "Copy", tint = safaColors.goldChampagne, modifier = Modifier.size(18.dp))
+                            Icon(Icons.Default.ContentCopy, contentDescription = "Copy", tint = if (safaColors.isLuxuryNavy) safaColors.goldChampagne else safaColors.textGold, modifier = Modifier.size(18.dp))
                         }
                         IconButton(onClick = onShare, modifier = Modifier.size(32.dp)) {
-                            Icon(Icons.Default.Share, contentDescription = "Share", tint = safaColors.goldChampagne, modifier = Modifier.size(18.dp))
+                            Icon(Icons.Default.Share, contentDescription = "Share", tint = if (safaColors.isLuxuryNavy) safaColors.goldChampagne else safaColors.textGold, modifier = Modifier.size(18.dp))
                         }
                     }
                 }
@@ -287,7 +287,7 @@ private fun HadithOfTheDayCard(
                     style = ArabicDisplayStyle,
                     fontSize = 22.sp,
                     lineHeight = 38.sp,
-                    color = safaColors.goldPrimary,
+                    color = if (safaColors.isLuxuryNavy) safaColors.goldPrimary else safaColors.textGold,
                     textAlign = TextAlign.Right,
                     modifier = Modifier.fillMaxWidth()
                 )
@@ -297,7 +297,7 @@ private fun HadithOfTheDayCard(
                 Text(
                     text = "\"${hadith.translation}\"",
                     style = MaterialTheme.typography.bodyMedium,
-                    color = Color(0xFFFDFBF7),
+                    color = safaColors.textPrimary,
                     lineHeight = 20.sp
                 )
 
@@ -306,7 +306,7 @@ private fun HadithOfTheDayCard(
                 Text(
                     text = "— ${hadith.narrator} • ${hadith.collection}",
                     style = MaterialTheme.typography.labelSmall,
-                    color = safaColors.goldChampagne,
+                    color = if (safaColors.isLuxuryNavy) safaColors.goldChampagne else safaColors.textSecondary,
                     fontStyle = androidx.compose.ui.text.font.FontStyle.Italic
                 )
             }

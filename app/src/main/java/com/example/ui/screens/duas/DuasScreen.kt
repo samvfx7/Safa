@@ -258,9 +258,9 @@ private fun FeaturedDuaCard(
                 .background(
                     Brush.linearGradient(
                         colors = if (safaColors.isLuxuryNavy) {
-                            listOf(Color(0xFF16254F), Color(0xFF0B132B), Color(0xFF070D1E))
+                            listOf(safaColors.navyElevated, safaColors.navySurface, safaColors.navyBackground)
                         } else {
-                            listOf(Color(0xFF2C1E14), Color(0xFF1E140C), Color(0xFF140D07))
+                            listOf(safaColors.navyElevated, safaColors.navySurface)
                         }
                     )
                 )
@@ -284,17 +284,17 @@ private fun FeaturedDuaCard(
                             text = "DUA OF THE DAY",
                             style = MaterialTheme.typography.labelSmall,
                             fontWeight = FontWeight.Bold,
-                            color = safaColors.goldChampagne,
+                            color = if (safaColors.isLuxuryNavy) safaColors.goldChampagne else safaColors.textGold,
                             letterSpacing = 1.2.sp
                         )
                     }
 
                     Row {
                         IconButton(onClick = onCopy, modifier = Modifier.size(32.dp)) {
-                            Icon(Icons.Default.ContentCopy, contentDescription = "Copy", tint = safaColors.goldChampagne, modifier = Modifier.size(18.dp))
+                            Icon(Icons.Default.ContentCopy, contentDescription = "Copy", tint = if (safaColors.isLuxuryNavy) safaColors.goldChampagne else safaColors.textGold, modifier = Modifier.size(18.dp))
                         }
                         IconButton(onClick = onShare, modifier = Modifier.size(32.dp)) {
-                            Icon(Icons.Default.Share, contentDescription = "Share", tint = safaColors.goldChampagne, modifier = Modifier.size(18.dp))
+                            Icon(Icons.Default.Share, contentDescription = "Share", tint = if (safaColors.isLuxuryNavy) safaColors.goldChampagne else safaColors.textGold, modifier = Modifier.size(18.dp))
                         }
                     }
                 }
@@ -305,7 +305,7 @@ private fun FeaturedDuaCard(
                     text = dua.title,
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold,
-                    color = Color(0xFFFDFBF7)
+                    color = safaColors.textPrimary
                 )
 
                 Spacer(modifier = Modifier.height(12.dp))
@@ -315,7 +315,7 @@ private fun FeaturedDuaCard(
                     style = ArabicDisplayStyle,
                     fontSize = 22.sp,
                     lineHeight = 38.sp,
-                    color = safaColors.goldPrimary,
+                    color = if (safaColors.isLuxuryNavy) safaColors.goldPrimary else safaColors.textGold,
                     textAlign = TextAlign.Right,
                     modifier = Modifier.fillMaxWidth()
                 )
@@ -325,7 +325,7 @@ private fun FeaturedDuaCard(
                 Text(
                     text = dua.translation,
                     style = MaterialTheme.typography.bodyMedium,
-                    color = Color(0xFFFDFBF7).copy(alpha = 0.95f),
+                    color = safaColors.textPrimary.copy(alpha = 0.9f),
                     lineHeight = 20.sp
                 )
 
@@ -334,7 +334,7 @@ private fun FeaturedDuaCard(
                     Text(
                         text = "• ${dua.benefit}",
                         style = MaterialTheme.typography.labelSmall,
-                        color = safaColors.goldChampagne,
+                        color = if (safaColors.isLuxuryNavy) safaColors.goldChampagne else safaColors.textSecondary,
                         fontStyle = androidx.compose.ui.text.font.FontStyle.Italic
                     )
                 }

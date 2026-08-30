@@ -73,6 +73,8 @@ fun QuranScreen(
     modifier: Modifier = Modifier
 ) {
     val uiState by viewModel.uiState.collectAsState()
+    val audioDownloadProgress by viewModel.audioDownloadProgress.collectAsState()
+    val downloadedAudioSurahs by viewModel.downloadedAudioSurahs.collectAsState()
     val safaColors = LocalSafaColors.current
 
     Scaffold(
@@ -144,8 +146,8 @@ fun QuranScreen(
                         .background(
                             Brush.horizontalGradient(
                                 colors = listOf(
-                                    Color(0xFF2C1E14),
-                                    Color(0xFF1E140C)
+                                    safaColors.navyElevated,
+                                    safaColors.navySurface
                                 )
                             )
                         )
@@ -180,12 +182,12 @@ fun QuranScreen(
                                     text = "Full Quran Audio Recitation",
                                     style = MaterialTheme.typography.titleSmall,
                                     fontWeight = FontWeight.Bold,
-                                    color = Color(0xFFFDFBF7)
+                                    color = safaColors.textPrimary
                                 )
                                 Text(
                                     text = "${uiState.playerState.reciter.englishName} • 114 Surahs",
                                     style = MaterialTheme.typography.bodySmall,
-                                    color = safaColors.goldChampagne.copy(alpha = 0.85f),
+                                    color = if (safaColors.isLuxuryNavy) safaColors.goldChampagne.copy(alpha = 0.85f) else safaColors.textSecondary,
                                     fontSize = 11.sp
                                 )
                             }
@@ -395,9 +397,18 @@ fun QuranScreen(
 
     // Full Screen Audio Player Sheet
     if (uiState.showFullPlayerModal) {
+        val currentSurahNumber = uiState.playerState.currentSurahNumber ?: 1
+        val progressKey = "${uiState.playerState.reciter.id}_$currentSurahNumber"
+        val downloadProgress = audioDownloadProgress[progressKey]
+        val isAudioDownloaded = downloadedAudioSurahs.contains(currentSurahNumber)
+
         FullQuranPlayerSheet(
             playerState = uiState.playerState,
             allSurahs = viewModel.getAllSurahs(),
+            isAudioDownloaded = isAudioDownloaded,
+            downloadProgress = downloadProgress,
+            onDownloadAudio = { viewModel.downloadSurahAudio(currentSurahNumber) },
+            onDeleteAudio = { viewModel.deleteSurahAudio(currentSurahNumber) },
             onDismiss = { viewModel.setFullPlayerModalVisible(false) },
             onTogglePlayPause = { viewModel.togglePlayPause() },
             onNextSurah = { viewModel.playNextSurah() },

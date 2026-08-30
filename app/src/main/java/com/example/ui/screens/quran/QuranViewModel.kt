@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import com.example.IslamicApp
 import com.example.audio.AudioPlayerHelper
 import com.example.audio.QariReciter
+import com.example.audio.QuranAudioDownloader
 import com.example.audio.QuranAudioPlayerState
 import com.example.audio.QuranRepeatMode
 import com.example.data.local.entity.BookmarkEntity
@@ -58,6 +59,12 @@ class QuranViewModel(application: Application) : AndroidViewModel(application) {
     )
     val uiState: StateFlow<QuranUiState> = _uiState.asStateFlow()
 
+    private val _audioDownloadProgress = MutableStateFlow<Map<String, Float>>(emptyMap())
+    val audioDownloadProgress: StateFlow<Map<String, Float>> = _audioDownloadProgress.asStateFlow()
+
+    private val _downloadedAudioSurahs = MutableStateFlow<Set<Int>>(emptySet())
+    val downloadedAudioSurahs: StateFlow<Set<Int>> = _downloadedAudioSurahs.asStateFlow()
+
     init {
         // Observe Surahs reactively from Room database
         viewModelScope.launch {
@@ -100,6 +107,16 @@ class QuranViewModel(application: Application) : AndroidViewModel(application) {
                 playSurahAudio(nextSurah.number)
             }
         }
+
+        // Observe progressive audio downloads
+        viewModelScope.launch {
+            QuranAudioDownloader.downloadProgress.collect { progressMap ->
+                _audioDownloadProgress.value = progressMap
+            }
+        }
+
+        // Initialize downloaded audio status
+        refreshDownloadedAudioStatus()
     }
 
     fun getAllSurahs(): List<Surah> = _uiState.value.allSurahs.ifEmpty { quranRepository.surahsList }
@@ -163,17 +180,24 @@ class QuranViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun toggleOfflineDownload(surahNumber: Int) {
+        val reciter = _uiState.value.playerState.reciter
+        val context = getApplication<Application>()
         viewModelScope.launch {
             _uiState.value = _uiState.value.copy(isDownloadingSurah = true)
             val currentDownloaded = _uiState.value.isCurrentSurahDownloaded
             if (currentDownloaded) {
                 quranRepository.removeOfflineSurah(surahNumber)
+                QuranAudioDownloader.deleteDownloadedAudio(context, reciter.id, surahNumber)
+                refreshDownloadedAudioStatus()
                 _uiState.value = _uiState.value.copy(
                     isCurrentSurahDownloaded = false,
                     isDownloadingSurah = false
                 )
             } else {
+                // Download both text and audio
+                val result = QuranAudioDownloader.downloadSurahAudio(context, reciter, surahNumber)
                 quranRepository.downloadSurahForOffline(surahNumber)
+                refreshDownloadedAudioStatus()
                 _uiState.value = _uiState.value.copy(
                     isCurrentSurahDownloaded = true,
                     isDownloadingSurah = false
@@ -255,6 +279,47 @@ class QuranViewModel(application: Application) : AndroidViewModel(application) {
     fun selectReciter(reciter: QariReciter) {
         audioPlayer.setReciter(reciter)
         _uiState.value = _uiState.value.copy(showReciterPicker = false)
+        refreshDownloadedAudioStatus()
+    }
+
+    fun refreshDownloadedAudioStatus() {
+        viewModelScope.launch {
+            val reciterId = _uiState.value.playerState.reciter.id
+            val downloadedSet = mutableSetOf<Int>()
+            for (i in 1..114) {
+                if (QuranAudioDownloader.isDownloaded(getApplication(), reciterId, i)) {
+                    downloadedSet.add(i)
+                }
+            }
+            _downloadedAudioSurahs.value = downloadedSet
+        }
+    }
+
+    fun downloadSurahAudio(surahNumber: Int) {
+        val reciter = _uiState.value.playerState.reciter
+        val context = getApplication<Application>()
+        viewModelScope.launch {
+            _uiState.value = _uiState.value.copy(isDownloadingSurah = true)
+            val result = QuranAudioDownloader.downloadSurahAudio(context, reciter, surahNumber)
+            _uiState.value = _uiState.value.copy(isDownloadingSurah = false)
+            if (result.isSuccess) {
+                // Ensure text is also cached locally in database for full offline reading
+                quranRepository.downloadSurahForOffline(surahNumber)
+                refreshDownloadedAudioStatus()
+            }
+        }
+    }
+
+    fun deleteSurahAudio(surahNumber: Int) {
+        val reciter = _uiState.value.playerState.reciter
+        val context = getApplication<Application>()
+        QuranAudioDownloader.deleteDownloadedAudio(context, reciter.id, surahNumber)
+        refreshDownloadedAudioStatus()
+    }
+
+    fun isSurahAudioDownloaded(surahNumber: Int): Boolean {
+        val reciter = _uiState.value.playerState.reciter
+        return QuranAudioDownloader.isDownloaded(getApplication(), reciter.id, surahNumber)
     }
 
     fun setPlaybackSpeed(speed: Float) {

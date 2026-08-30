@@ -31,7 +31,7 @@ import com.example.data.local.entity.TasbihLogEntity
         QuranSurahEntity::class,
         QuranAyahEntity::class
     ],
-    version = 2,
+    version = 3,
     exportSchema = false
 )
 abstract class NoorDatabase : RoomDatabase() {

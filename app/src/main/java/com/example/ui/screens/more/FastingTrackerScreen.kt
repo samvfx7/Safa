@@ -112,9 +112,9 @@ fun FastingTrackerScreen(
                             .background(
                                 Brush.linearGradient(
                                     colors = if (safaColors.isLuxuryNavy) {
-                                        listOf(Color(0xFF16254F), Color(0xFF0B132B), Color(0xFF070D1E))
+                                        listOf(safaColors.navyElevated, safaColors.navySurface, safaColors.navyBackground)
                                     } else {
-                                        listOf(Color(0xFF0B132B), Color(0xFF16254F))
+                                        listOf(safaColors.navyElevated, safaColors.navySurface)
                                     }
                                 )
                             )
@@ -131,14 +131,14 @@ fun FastingTrackerScreen(
                                         text = "FASTING COUNTDOWN",
                                         style = MaterialTheme.typography.labelSmall,
                                         fontWeight = FontWeight.Bold,
-                                        color = safaColors.goldChampagne,
+                                        color = if (safaColors.isLuxuryNavy) safaColors.goldChampagne else safaColors.textGold,
                                         letterSpacing = 1.2.sp
                                     )
                                     Text(
                                         text = "Iftar at Maghrib (7:40 PM)",
                                         style = MaterialTheme.typography.titleMedium,
                                         fontWeight = FontWeight.Bold,
-                                        color = Color(0xFFFDFBF7)
+                                        color = safaColors.textPrimary
                                     )
                                 }
 
@@ -156,7 +156,7 @@ fun FastingTrackerScreen(
                                 text = "Remaining: 4 hrs 12 mins",
                                 style = MaterialTheme.typography.headlineMedium,
                                 fontWeight = FontWeight.Bold,
-                                color = safaColors.goldPrimary
+                                color = if (safaColors.isLuxuryNavy) safaColors.goldPrimary else safaColors.textGold
                             )
 
                             Spacer(modifier = Modifier.height(8.dp))
@@ -164,7 +164,7 @@ fun FastingTrackerScreen(
                             Text(
                                 text = "Suhoor ends at Fajr: 05:15 AM",
                                 style = MaterialTheme.typography.bodySmall,
-                                color = safaColors.goldChampagne.copy(alpha = 0.85f)
+                                color = if (safaColors.isLuxuryNavy) safaColors.goldChampagne.copy(alpha = 0.85f) else safaColors.textSecondary
                             )
                         }
                     }
