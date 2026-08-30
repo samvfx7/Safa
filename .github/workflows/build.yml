@@ -36,6 +36,9 @@ jobs:
             -alias androiddebugkey -keypass android -storepass android \
             -dname "CN=Android Debug,O=Android,C=US"
 
+      - name: Make gradlew executable
+        run: chmod +x ./gradlew
+
       - name: Build APK
         run: ./gradlew assembleDebug
 
