@@ -102,6 +102,7 @@ import com.example.ui.screens.more.ZakatCalculatorScreen
 import com.example.ui.screens.prayer.FajrAlarmScreen
 import com.example.ui.screens.prayer.PrayerTimesScreen
 import com.example.ui.screens.prayer.PrayerViewModel
+import com.example.ui.screens.prayer.WuduTimerScreen
 import com.example.ui.screens.qibla.QiblaScreen
 import com.example.ui.screens.quran.QuranScreen
 import com.example.ui.screens.quran.QuranViewModel
@@ -151,7 +152,8 @@ val bottomNavItems = listOf(
 
 @Composable
 fun AppNavigation(
-    navController: NavHostController = rememberNavController()
+    navController: NavHostController = rememberNavController(),
+    startDestinationOverride: String? = null
 ) {
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = navBackStackEntry?.destination?.route
@@ -190,7 +192,7 @@ fun AppNavigation(
     ) {
         NavHost(
             navController = navController,
-            startDestination = Screen.PrayerTimes.route,
+            startDestination = startDestinationOverride ?: Screen.PrayerTimes.route,
             modifier = Modifier.fillMaxSize(),
             enterTransition = {
                 val initialRoute = initialState.destination.route
@@ -369,6 +371,17 @@ fun AppNavigation(
                     onBack = { navController.popBackStack() },
                     onNavigateToSurah = { surahNumber ->
                         navController.navigate(Screen.SurahDetail.createRoute(surahNumber))
+                    }
+                )
+            }
+            
+            composable(Screen.WuduTimer.route) {
+                WuduTimerScreen(
+                    onScanPrayerMatClick = {
+                        // Navigate to Qibla compass (which uses camera/sensors)
+                        navController.navigate(Screen.Qibla.route) {
+                            popUpTo(Screen.WuduTimer.route) { inclusive = true }
+                        }
                     }
                 )
             }
