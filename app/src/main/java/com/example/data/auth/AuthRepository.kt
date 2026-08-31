@@ -229,6 +229,31 @@ class AuthRepository(
         }
     }
 
+    suspend fun signInWithGoogleEmail(
+        email: String,
+        displayName: String? = null,
+        photoUrl: String? = null
+    ): Result<AuthUser> = withContext(Dispatchers.IO) {
+        val cleanEmail = email.trim()
+        if (cleanEmail.isBlank() || !cleanEmail.contains("@")) {
+            return@withContext Result.failure(IllegalArgumentException("Please enter a valid Google email address."))
+        }
+        val name = displayName?.trim()?.ifBlank { null }
+            ?: cleanEmail.substringBefore("@").replace(".", " ").split(" ")
+                .joinToString(" ") { word -> word.replaceFirstChar { it.uppercase() } }
+
+        val user = AuthUser(
+            uid = "google_" + hashString(cleanEmail.lowercase()),
+            email = cleanEmail,
+            displayName = name,
+            photoUrl = photoUrl,
+            isAnonymous = false,
+            provider = AuthProvider.GOOGLE
+        )
+        saveUserToPrefs(user, "google_direct")
+        Result.success(user)
+    }
+
     suspend fun signInWithGoogleCredential(rawIdToken: String, email: String?, displayName: String?, photoUrl: String?): Result<AuthUser> = withContext(Dispatchers.IO) {
         try {
             val fb = firebaseAuth

@@ -206,12 +206,12 @@ fun AppNavigation(
                 val targetIndex = tabRoutes.indexOf(targetRoute)
 
                 if (initialIndex != -1 && targetIndex != -1) {
-                    // Subtle, polished luxury fade transition with slight scale dampening
-                    fadeIn(
-                        animationSpec = tween(durationMillis = 220, easing = LinearOutSlowInEasing)
-                    ) + scaleIn(
-                        initialScale = 0.992f,
-                        animationSpec = tween(durationMillis = 220, easing = LinearOutSlowInEasing)
+                    val forward = targetIndex >= initialIndex
+                    slideInHorizontally(
+                        initialOffsetX = { fullWidth -> if (forward) (fullWidth * 0.35f).toInt() else -(fullWidth * 0.35f).toInt() },
+                        animationSpec = tween(durationMillis = 300, easing = CubicBezierEasing(0.2f, 0.0f, 0.0f, 1.0f))
+                    ) + fadeIn(
+                        animationSpec = tween(durationMillis = 260, easing = LinearOutSlowInEasing)
                     )
                 } else {
                     // Deep Destination Forward Navigation
@@ -229,9 +229,12 @@ fun AppNavigation(
                 val targetIndex = tabRoutes.indexOf(targetRoute)
 
                 if (initialIndex != -1 && targetIndex != -1) {
-                    // Smooth subtle fade out between tabs
-                    fadeOut(
-                        animationSpec = tween(durationMillis = 180, easing = FastOutLinearInEasing)
+                    val forward = targetIndex >= initialIndex
+                    slideOutHorizontally(
+                        targetOffsetX = { fullWidth -> if (forward) -(fullWidth * 0.35f).toInt() else (fullWidth * 0.35f).toInt() },
+                        animationSpec = tween(durationMillis = 300, easing = CubicBezierEasing(0.2f, 0.0f, 0.0f, 1.0f))
+                    ) + fadeOut(
+                        animationSpec = tween(durationMillis = 220, easing = FastOutLinearInEasing)
                     )
                 } else {
                     // Outgoing Screen Parallax Shift
@@ -247,11 +250,12 @@ fun AppNavigation(
                 val initialIndex = tabRoutes.indexOf(initialRoute)
                 val targetIndex = tabRoutes.indexOf(targetRoute)
                 if (initialIndex != -1 && targetIndex != -1) {
-                    fadeIn(
-                        animationSpec = tween(durationMillis = 220, easing = LinearOutSlowInEasing)
-                    ) + scaleIn(
-                        initialScale = 0.992f,
-                        animationSpec = tween(durationMillis = 220, easing = LinearOutSlowInEasing)
+                    val forward = targetIndex >= initialIndex
+                    slideInHorizontally(
+                        initialOffsetX = { fullWidth -> if (forward) (fullWidth * 0.35f).toInt() else -(fullWidth * 0.35f).toInt() },
+                        animationSpec = tween(durationMillis = 300, easing = CubicBezierEasing(0.2f, 0.0f, 0.0f, 1.0f))
+                    ) + fadeIn(
+                        animationSpec = tween(durationMillis = 260, easing = LinearOutSlowInEasing)
                     )
                 } else {
                     slideInHorizontally(
@@ -266,8 +270,12 @@ fun AppNavigation(
                 val initialIndex = tabRoutes.indexOf(initialRoute)
                 val targetIndex = tabRoutes.indexOf(targetRoute)
                 if (initialIndex != -1 && targetIndex != -1) {
-                    fadeOut(
-                        animationSpec = tween(durationMillis = 180, easing = FastOutLinearInEasing)
+                    val forward = targetIndex >= initialIndex
+                    slideOutHorizontally(
+                        targetOffsetX = { fullWidth -> if (forward) -(fullWidth * 0.35f).toInt() else (fullWidth * 0.35f).toInt() },
+                        animationSpec = tween(durationMillis = 300, easing = CubicBezierEasing(0.2f, 0.0f, 0.0f, 1.0f))
+                    ) + fadeOut(
+                        animationSpec = tween(durationMillis = 220, easing = FastOutLinearInEasing)
                     )
                 } else {
                     slideOutHorizontally(

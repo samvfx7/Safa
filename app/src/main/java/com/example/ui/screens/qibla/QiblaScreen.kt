@@ -340,6 +340,18 @@ fun QiblaScreen(
     }
 }
 
+private fun getClosestAngle(current: Float, target: Float): Float {
+    val diff = (target - current) % 360f
+    val shortestDiff = if (diff < -180f) {
+        diff + 360f
+    } else if (diff > 180f) {
+        diff - 360f
+    } else {
+        diff
+    }
+    return current + shortestDiff
+}
+
 @Composable
 private fun QiblaCompassDial(
     azimuth: Float,
@@ -347,15 +359,25 @@ private fun QiblaCompassDial(
     isAligned: Boolean
 ) {
     val safaColors = LocalSafaColors.current
+    
+    var targetAzimuth by remember { mutableStateOf(-azimuth) }
+    LaunchedEffect(azimuth) {
+        targetAzimuth = getClosestAngle(targetAzimuth, -azimuth)
+    }
     val animatedAzimuth by animateFloatAsState(
-        targetValue = -azimuth,
-        animationSpec = tween(durationMillis = 200, easing = FastOutSlowInEasing),
+        targetValue = targetAzimuth,
+        animationSpec = tween(durationMillis = 280, easing = FastOutSlowInEasing),
         label = "compassAzimuth"
     )
 
+    val rawQiblaAngle = qiblaBearing - azimuth
+    var targetQiblaAngle by remember { mutableStateOf(rawQiblaAngle) }
+    LaunchedEffect(qiblaBearing, azimuth) {
+        targetQiblaAngle = getClosestAngle(targetQiblaAngle, qiblaBearing - azimuth)
+    }
     val animatedQiblaAngle by animateFloatAsState(
-        targetValue = qiblaBearing - azimuth,
-        animationSpec = tween(durationMillis = 200, easing = FastOutSlowInEasing),
+        targetValue = targetQiblaAngle,
+        animationSpec = tween(durationMillis = 280, easing = FastOutSlowInEasing),
         label = "qiblaAngle"
     )
 

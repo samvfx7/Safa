@@ -61,6 +61,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.navigation.Screen
+import com.example.ui.animation.pressScale
 import com.example.ui.theme.LocalSafaColors
 import com.example.ui.theme.SafaNavyDark
 import com.example.ui.theme.SafaSpacing
@@ -112,7 +113,7 @@ fun MoreScreen(
 
             item {
                 Text(
-                    text = "ISLAMIC PRACTICES & DHIKR",
+                    text = "WORSHIP",
                     style = MaterialTheme.typography.labelSmall,
                     fontWeight = FontWeight.Bold,
                     color = safaColors.textSecondary,
@@ -120,7 +121,7 @@ fun MoreScreen(
                 )
             }
 
-            // Submenu Items
+            // Worship Items
             item {
                 MoreMenuItemCard(
                     icon = Icons.Outlined.SelfImprovement,
@@ -155,6 +156,17 @@ fun MoreScreen(
             }
 
             item {
+                Text(
+                    text = "SEASONAL",
+                    style = MaterialTheme.typography.labelSmall,
+                    fontWeight = FontWeight.Bold,
+                    color = safaColors.textSecondary,
+                    letterSpacing = 1.2.sp
+                )
+            }
+
+            // Seasonal Items
+            item {
                 MoreMenuItemCard(
                     icon = Icons.Default.NightsStay,
                     iconTint = safaColors.goldPrimary,
@@ -167,7 +179,7 @@ fun MoreScreen(
 
             item {
                 Text(
-                    text = "SERVICES & TOOLS",
+                    text = "TOOLS",
                     style = MaterialTheme.typography.labelSmall,
                     fontWeight = FontWeight.Bold,
                     color = safaColors.textSecondary,
@@ -175,6 +187,7 @@ fun MoreScreen(
                 )
             }
 
+            // Tools Items
             item {
                 MoreMenuItemCard(
                     icon = Icons.Outlined.AccountBalanceWallet,
@@ -236,6 +249,7 @@ private fun StreakSummaryHeaderCard(
     Card(
         modifier = Modifier
             .fillMaxWidth()
+            .pressScale(0.97f)
             .clickable { onClick() }
             .testTag("streak_summary_card"),
         shape = RoundedCornerShape(SafaSpacing.cardRadiusLarge),
@@ -305,6 +319,7 @@ private fun MoreMenuItemCard(
     Card(
         modifier = Modifier
             .fillMaxWidth()
+            .pressScale(0.98f)
             .clickable { onClick() }
             .testTag("menu_item_${title.lowercase().replace(" ", "_")}"),
         shape = RoundedCornerShape(SafaSpacing.cardRadius),

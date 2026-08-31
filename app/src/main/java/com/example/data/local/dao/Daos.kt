@@ -59,17 +59,26 @@ interface TasbihDao {
 
 @Dao
 interface DuaDao {
-    @Query("SELECT * FROM duas")
+    @Query("SELECT * FROM duas ORDER BY title ASC")
     fun getAllDuas(): Flow<List<DuaEntity>>
 
-    @Query("SELECT * FROM duas WHERE category = :category")
+    @Query("SELECT * FROM duas WHERE category = :category ORDER BY title ASC")
     fun getDuasByCategory(category: String): Flow<List<DuaEntity>>
 
-    @Query("SELECT * FROM duas WHERE isFavorite = 1")
+    @Query("SELECT * FROM duas WHERE isFavorite = 1 ORDER BY title ASC")
     fun getFavoriteDuas(): Flow<List<DuaEntity>>
 
-    @Query("SELECT * FROM duas WHERE title LIKE '%' || :query || '%' OR translation LIKE '%' || :query || '%'")
+    @Query("SELECT * FROM duas WHERE title LIKE '%' || :query || '%' OR translation LIKE '%' || :query || '%' OR transliteration LIKE '%' || :query || '%' OR arabicText LIKE '%' || :query || '%' OR benefit LIKE '%' || :query || '%' OR source LIKE '%' || :query || '%' OR category LIKE '%' || :query || '%' ORDER BY title ASC")
     fun searchDuas(query: String): Flow<List<DuaEntity>>
+
+    @Query("SELECT * FROM duas WHERE isFavorite = 1 AND (title LIKE '%' || :query || '%' OR translation LIKE '%' || :query || '%' OR transliteration LIKE '%' || :query || '%' OR arabicText LIKE '%' || :query || '%' OR benefit LIKE '%' || :query || '%') ORDER BY title ASC")
+    fun searchFavoriteDuas(query: String): Flow<List<DuaEntity>>
+
+    @Query("SELECT * FROM duas WHERE category = :category AND (title LIKE '%' || :query || '%' OR translation LIKE '%' || :query || '%' OR transliteration LIKE '%' || :query || '%' OR arabicText LIKE '%' || :query || '%') ORDER BY title ASC")
+    fun searchDuasInCategory(category: String, query: String): Flow<List<DuaEntity>>
+
+    @Query("SELECT COUNT(*) FROM duas WHERE isFavorite = 1")
+    fun getFavoriteCount(): Flow<Int>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertDuas(duas: List<DuaEntity>)

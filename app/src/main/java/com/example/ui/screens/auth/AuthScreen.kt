@@ -111,6 +111,9 @@ fun AuthScreen(
     var name by remember { mutableStateOf("") }
     var passwordVisible by remember { mutableStateOf(false) }
 
+    var googleEmailInput by remember { mutableStateOf("") }
+    var googleNameInput by remember { mutableStateOf("") }
+
     LaunchedEffect(uiState.errorMessage) {
         uiState.errorMessage?.let { msg ->
             snackbarHostState.showSnackbar(msg)
@@ -122,6 +125,138 @@ fun AuthScreen(
         uiState.successMessage?.let { msg ->
             snackbarHostState.showSnackbar(msg)
             viewModel.clearMessages()
+        }
+    }
+
+    // Google Connect Modal Dialog for real email linking
+    if (uiState.showGoogleConnectDialog) {
+        androidx.compose.ui.window.Dialog(
+            onDismissRequest = { viewModel.showGoogleConnectDialog(false) }
+        ) {
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(16.dp),
+                shape = RoundedCornerShape(20.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                border = BorderStroke(1.2.dp, safaColors.goldPrimary.copy(alpha = 0.5f))
+            ) {
+                Column(
+                    modifier = Modifier.padding(20.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(14.dp)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(52.dp)
+                            .background(if (safaColors.isLuxuryNavy) Color.White else Color(0xFFF1F5F9), CircleShape),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = "G",
+                            fontWeight = FontWeight.Black,
+                            fontSize = 26.sp,
+                            color = Color(0xFFEA4335)
+                        )
+                    }
+
+                    Text(
+                        text = "Connect Google Account",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = safaColors.textPrimary
+                    )
+
+                    Text(
+                        text = "Enter your Google email to synchronize your daily prayer streak across all your devices.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = safaColors.textSecondary,
+                        textAlign = TextAlign.Center
+                    )
+
+                    OutlinedTextField(
+                        value = googleEmailInput,
+                        onValueChange = { googleEmailInput = it },
+                        label = { Text("Google Email (e.g. name@gmail.com)") },
+                        leadingIcon = {
+                            Icon(
+                                imageVector = Icons.Default.Email,
+                                contentDescription = null,
+                                tint = safaColors.goldPrimary
+                            )
+                        },
+                        singleLine = true,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("google_email_dialog_input"),
+                        shape = RoundedCornerShape(12.dp),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = safaColors.goldPrimary,
+                            unfocusedBorderColor = safaColors.goldBorder.copy(alpha = 0.4f)
+                        ),
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email, imeAction = ImeAction.Next)
+                    )
+
+                    OutlinedTextField(
+                        value = googleNameInput,
+                        onValueChange = { googleNameInput = it },
+                        label = { Text("Display Name (Optional)") },
+                        leadingIcon = {
+                            Icon(
+                                imageVector = Icons.Default.Person,
+                                contentDescription = null,
+                                tint = safaColors.goldPrimary
+                            )
+                        },
+                        singleLine = true,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("google_name_dialog_input"),
+                        shape = RoundedCornerShape(12.dp),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = safaColors.goldPrimary,
+                            unfocusedBorderColor = safaColors.goldBorder.copy(alpha = 0.4f)
+                        ),
+                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done)
+                    )
+
+                    Button(
+                        onClick = {
+                            viewModel.connectGoogleAccount(
+                                email = googleEmailInput,
+                                displayName = googleNameInput.ifBlank { null }
+                            ) {
+                                onAuthSuccess()
+                            }
+                        },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(48.dp)
+                            .testTag("google_dialog_connect_button"),
+                        shape = RoundedCornerShape(12.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = safaColors.goldPrimary,
+                            contentColor = SafaNavyDark
+                        )
+                    ) {
+                        Text(
+                            text = "Connect & Sync Streak",
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 14.sp
+                        )
+                    }
+
+                    TextButton(
+                        onClick = { viewModel.showGoogleConnectDialog(false) }
+                    ) {
+                        Text(
+                            text = "Cancel",
+                            color = safaColors.textSecondary,
+                            fontSize = 13.sp
+                        )
+                    }
+                }
+            }
         }
     }
 
@@ -419,6 +554,20 @@ fun AuthScreen(
                                 fontSize = 14.sp
                             )
                         }
+                    }
+                }
+
+                item {
+                    TextButton(
+                        onClick = { viewModel.showGoogleConnectDialog(true) },
+                        modifier = Modifier.fillMaxWidth().testTag("enter_google_email_direct_button")
+                    ) {
+                        Text(
+                            text = "Or enter Google email directly",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = safaColors.goldPrimary,
+                            fontWeight = FontWeight.SemiBold
+                        )
                     }
                 }
 

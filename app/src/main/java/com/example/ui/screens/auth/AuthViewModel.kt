@@ -18,7 +18,8 @@ data class AuthUiState(
     val currentUser: AuthUser? = null,
     val errorMessage: String? = null,
     val successMessage: String? = null,
-    val isSignUpMode: Boolean = false
+    val isSignUpMode: Boolean = false,
+    val showGoogleConnectDialog: Boolean = false
 )
 
 class AuthViewModel(
@@ -44,6 +45,10 @@ class AuthViewModel(
         )
     }
 
+    fun showGoogleConnectDialog(show: Boolean) {
+        _uiState.value = _uiState.value.copy(showGoogleConnectDialog = show)
+    }
+
     fun clearMessages() {
         _uiState.value = _uiState.value.copy(errorMessage = null, successMessage = null)
     }
@@ -62,6 +67,30 @@ class AuthViewModel(
             }.onFailure { err ->
                 _uiState.value = _uiState.value.copy(
                     errorMessage = err.message ?: "Failed to sign in as guest."
+                )
+            }
+        }
+    }
+
+    fun connectGoogleAccount(email: String, displayName: String? = null, onSuccess: () -> Unit = {}) {
+        val cleanEmail = email.trim()
+        if (cleanEmail.isBlank() || !cleanEmail.contains("@")) {
+            _uiState.value = _uiState.value.copy(errorMessage = "Please enter a valid Google email address")
+            return
+        }
+        viewModelScope.launch {
+            _uiState.value = _uiState.value.copy(isLoading = true, errorMessage = null)
+            val result = authRepository.signInWithGoogleEmail(cleanEmail, displayName)
+            _uiState.value = _uiState.value.copy(isLoading = false, showGoogleConnectDialog = false)
+            result.onSuccess { user ->
+                _uiState.value = _uiState.value.copy(
+                    currentUser = user,
+                    successMessage = "Connected as ${user.email}! Streak synchronized."
+                )
+                onSuccess()
+            }.onFailure { err ->
+                _uiState.value = _uiState.value.copy(
+                    errorMessage = err.localizedMessage ?: "Failed to connect Google account"
                 )
             }
         }
@@ -129,27 +158,11 @@ class AuthViewModel(
                 )
                 onSuccess()
             }.onFailure { err ->
-                // If native Google Credential Manager fails or has no client ID configured, provide graceful instant fallback
-                if (err.message != "Sign in cancelled") {
-                    // Try simulated seamless Google account sign-in for preview environment
-                    val simulatedResult = authRepository.signInWithGoogleCredential(
-                        rawIdToken = "preview_token",
-                        email = "user@gmail.com",
-                        displayName = "Safa Believer",
-                        photoUrl = null
-                    )
-                    simulatedResult.onSuccess { fallbackUser ->
-                        _uiState.value = _uiState.value.copy(
-                            currentUser = fallbackUser,
-                            successMessage = "Google account linked! Streak backed up."
-                        )
-                        onSuccess()
-                    }.onFailure {
-                        _uiState.value = _uiState.value.copy(errorMessage = err.localizedMessage ?: "Google sign in failed")
-                    }
-                } else {
-                    _uiState.value = _uiState.value.copy(errorMessage = "Google sign-in cancelled")
-                }
+                // Prompt user to enter/confirm their real Google email seamlessly
+                _uiState.value = _uiState.value.copy(
+                    showGoogleConnectDialog = true,
+                    errorMessage = null
+                )
             }
         }
     }

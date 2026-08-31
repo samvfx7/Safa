@@ -42,6 +42,15 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.animation.togetherWith
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import com.example.ui.animation.EaseOutCubic
+import com.example.ui.animation.pressScale
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.audio.QuranAudioPlayerState
@@ -75,6 +84,7 @@ fun QuranAudioBottomBar(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = SafaSpacing.screenHorizontalPadding, vertical = 6.dp)
+                .pressScale(0.98f)
                 .clickable { onOpenFullPlayer() }
                 .testTag("quran_bottom_audio_bar"),
             shape = RoundedCornerShape(18.dp),
@@ -177,15 +187,25 @@ fun QuranAudioBottomBar(
                             onClick = onTogglePlayPause,
                             modifier = Modifier
                                 .size(40.dp)
+                                .pressScale(0.92f)
                                 .background(safaColors.goldPrimary, CircleShape)
                                 .testTag("bottom_player_play_pause")
                         ) {
-                            Icon(
-                                imageVector = if (playerState.isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
-                                contentDescription = if (playerState.isPlaying) "Pause" else "Play",
-                                tint = Color.White,
-                                modifier = Modifier.size(24.dp)
-                            )
+                            AnimatedContent(
+                                targetState = playerState.isPlaying,
+                                transitionSpec = {
+                                    (scaleIn(animationSpec = tween(220, easing = EaseOutCubic)) + fadeIn(tween(140))) togetherWith
+                                    (scaleOut(animationSpec = tween(180, easing = EaseOutCubic)) + fadeOut(tween(140)))
+                                },
+                                label = "miniPlayPauseAnim"
+                            ) { isPlaying ->
+                                Icon(
+                                    imageVector = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
+                                    contentDescription = if (isPlaying) "Pause" else "Play",
+                                    tint = Color.White,
+                                    modifier = Modifier.size(24.dp)
+                                )
+                            }
                         }
 
                         Spacer(modifier = Modifier.width(4.dp))

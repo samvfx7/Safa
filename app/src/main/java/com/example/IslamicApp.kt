@@ -69,7 +69,7 @@ class IslamicApp : Application() {
         prayerNotificationManager = PrayerNotificationManager(this, settingsRepository)
         prayerRepository = PrayerRepository(database.prayerDao(), database.prayerLogDao(), settingsRepository)
         quranRepository = QuranRepository(database.quranDao(), database.bookmarkDao())
-        duaRepository = DuaRepository(database.duaDao())
+        duaRepository = DuaRepository(database.duaDao(), database.bookmarkDao())
         hadithRepository = HadithRepository(database.hadithDao())
         tasbihRepository = TasbihRepository(database.tasbihDao())
         bookmarkRepository = BookmarkRepository(database.bookmarkDao())
