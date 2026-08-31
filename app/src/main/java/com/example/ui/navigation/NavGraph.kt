@@ -3,7 +3,9 @@ package com.example.ui.navigation
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.CubicBezierEasing
+import androidx.compose.animation.core.FastOutLinearInEasing
 import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.LinearOutSlowInEasing
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
@@ -202,18 +204,13 @@ fun AppNavigation(
                 val targetIndex = tabRoutes.indexOf(targetRoute)
 
                 if (initialIndex != -1 && targetIndex != -1) {
-                    // Smooth Tab Lateral Slide & Parallax
-                    if (targetIndex > initialIndex) {
-                        slideInHorizontally(
-                            initialOffsetX = { fullWidth -> (fullWidth * 0.32f).toInt() },
-                            animationSpec = tween(340, easing = emphasizedEasing)
-                        ) + fadeIn(tween(280, easing = emphasizedEasing)) + scaleIn(initialScale = 0.97f, animationSpec = tween(340, easing = emphasizedEasing))
-                    } else {
-                        slideInHorizontally(
-                            initialOffsetX = { fullWidth -> -(fullWidth * 0.32f).toInt() },
-                            animationSpec = tween(340, easing = emphasizedEasing)
-                        ) + fadeIn(tween(280, easing = emphasizedEasing)) + scaleIn(initialScale = 0.97f, animationSpec = tween(340, easing = emphasizedEasing))
-                    }
+                    // Subtle, polished luxury fade transition with slight scale dampening
+                    fadeIn(
+                        animationSpec = tween(durationMillis = 220, easing = LinearOutSlowInEasing)
+                    ) + scaleIn(
+                        initialScale = 0.992f,
+                        animationSpec = tween(durationMillis = 220, easing = LinearOutSlowInEasing)
+                    )
                 } else {
                     // Deep Destination Forward Navigation
                     slideInHorizontally(
@@ -230,17 +227,10 @@ fun AppNavigation(
                 val targetIndex = tabRoutes.indexOf(targetRoute)
 
                 if (initialIndex != -1 && targetIndex != -1) {
-                    if (targetIndex > initialIndex) {
-                        slideOutHorizontally(
-                            targetOffsetX = { fullWidth -> -(fullWidth * 0.32f).toInt() },
-                            animationSpec = tween(300, easing = emphasizedEasing)
-                        ) + fadeOut(tween(220, easing = emphasizedEasing)) + scaleOut(targetScale = 0.97f, animationSpec = tween(300, easing = emphasizedEasing))
-                    } else {
-                        slideOutHorizontally(
-                            targetOffsetX = { fullWidth -> (fullWidth * 0.32f).toInt() },
-                            animationSpec = tween(300, easing = emphasizedEasing)
-                        ) + fadeOut(tween(220, easing = emphasizedEasing)) + scaleOut(targetScale = 0.97f, animationSpec = tween(300, easing = emphasizedEasing))
-                    }
+                    // Smooth subtle fade out between tabs
+                    fadeOut(
+                        animationSpec = tween(durationMillis = 180, easing = FastOutLinearInEasing)
+                    )
                 } else {
                     // Outgoing Screen Parallax Shift
                     slideOutHorizontally(
@@ -250,23 +240,50 @@ fun AppNavigation(
                 }
             },
             popEnterTransition = {
-                slideInHorizontally(
-                    initialOffsetX = { fullWidth -> -(fullWidth * 0.24f).toInt() },
-                    animationSpec = tween(360, easing = smoothEnterEasing)
-                ) + fadeIn(tween(280, easing = emphasizedEasing)) + scaleIn(initialScale = 0.96f, animationSpec = tween(360, easing = smoothEnterEasing))
+                val initialRoute = initialState.destination.route
+                val targetRoute = targetState.destination.route
+                val initialIndex = tabRoutes.indexOf(initialRoute)
+                val targetIndex = tabRoutes.indexOf(targetRoute)
+                if (initialIndex != -1 && targetIndex != -1) {
+                    fadeIn(
+                        animationSpec = tween(durationMillis = 220, easing = LinearOutSlowInEasing)
+                    ) + scaleIn(
+                        initialScale = 0.992f,
+                        animationSpec = tween(durationMillis = 220, easing = LinearOutSlowInEasing)
+                    )
+                } else {
+                    slideInHorizontally(
+                        initialOffsetX = { fullWidth -> -(fullWidth * 0.24f).toInt() },
+                        animationSpec = tween(360, easing = smoothEnterEasing)
+                    ) + fadeIn(tween(280, easing = emphasizedEasing)) + scaleIn(initialScale = 0.96f, animationSpec = tween(360, easing = smoothEnterEasing))
+                }
             },
             popExitTransition = {
-                slideOutHorizontally(
-                    targetOffsetX = { fullWidth -> (fullWidth * 0.8f).toInt() },
-                    animationSpec = tween(340, easing = smoothExitEasing)
-                ) + fadeOut(tween(240, easing = emphasizedEasing)) + scaleOut(targetScale = 0.96f, animationSpec = tween(340, easing = smoothExitEasing))
+                val initialRoute = initialState.destination.route
+                val targetRoute = targetState.destination.route
+                val initialIndex = tabRoutes.indexOf(initialRoute)
+                val targetIndex = tabRoutes.indexOf(targetRoute)
+                if (initialIndex != -1 && targetIndex != -1) {
+                    fadeOut(
+                        animationSpec = tween(durationMillis = 180, easing = FastOutLinearInEasing)
+                    )
+                } else {
+                    slideOutHorizontally(
+                        targetOffsetX = { fullWidth -> (fullWidth * 0.8f).toInt() },
+                        animationSpec = tween(340, easing = smoothExitEasing)
+                    ) + fadeOut(tween(240, easing = emphasizedEasing)) + scaleOut(targetScale = 0.96f, animationSpec = tween(340, easing = smoothExitEasing))
+                }
             }
         ) {
             // Tab 1: Prayer Times
             composable(Screen.PrayerTimes.route) {
                 PrayerTimesScreen(
                     viewModel = prayerViewModel,
-                    onNavigateToAlarm = { navController.navigate(Screen.FajrAlarm.route) }
+                    onNavigateToAlarm = { navController.navigate(Screen.FajrAlarm.route) },
+                    onNavigateToQibla = { navController.navigate(Screen.Qibla.route) },
+                    onNavigateToWudu = { navController.navigate(Screen.WuduTimer.route) },
+                    onNavigateToTasbih = { navController.navigate(Screen.Tasbih.route) },
+                    onNavigateToStreak = { navController.navigate(Screen.PrayerStreak.route) }
                 )
             }
 
