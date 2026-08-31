@@ -21,6 +21,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowForwardIos
 import androidx.compose.material.icons.filled.AccountBalance
+import androidx.compose.material.icons.filled.AccountCircle
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.filled.CalendarMonth
@@ -193,6 +194,17 @@ fun MoreScreen(
                     subtitle = "Nearby mosques with directions & distance",
                     badge = "Nearby",
                     onClick = { onNavigateToRoute(Screen.MasjidFinder.route) }
+                )
+            }
+
+            item {
+                MoreMenuItemCard(
+                    icon = Icons.Default.AccountCircle,
+                    iconTint = safaColors.goldPrimary,
+                    title = "Account & Streak Sync",
+                    subtitle = "Google sign in, email login & guest backup",
+                    badge = "Streak",
+                    onClick = { onNavigateToRoute(Screen.Auth.route) }
                 )
             }
 

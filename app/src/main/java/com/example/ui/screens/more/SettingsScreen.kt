@@ -20,6 +20,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.AccountCircle
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.Check
@@ -99,6 +100,7 @@ data class ThemeOption(
 fun SettingsScreen(
     settingsRepository: SettingsRepository,
     onBack: () -> Unit,
+    onNavigateToAuth: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val settings by settingsRepository.settingsState.collectAsState()
@@ -107,6 +109,7 @@ fun SettingsScreen(
 
     val context = LocalContext.current
     val app = context.applicationContext as IslamicApp
+    val authUser by app.authRepository.currentUser.collectAsState()
     val permissionManager = app.permissionManager
     val permState by permissionManager.permissionState.collectAsState()
     var showPermissionDialog by remember { mutableStateOf(false) }
@@ -248,6 +251,83 @@ fun SettingsScreen(
                 .padding(horizontal = SafaSpacing.screenHorizontalPadding),
             verticalArrangement = Arrangement.spacedBy(SafaSpacing.md)
         ) {
+            // ACCOUNT & STREAK SYNC BANNER
+            item {
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(SafaSpacing.cardRadiusLarge))
+                        .clickable { onNavigateToAuth() }
+                        .testTag("account_sync_settings_card"),
+                    shape = RoundedCornerShape(SafaSpacing.cardRadiusLarge),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                    border = BorderStroke(1.2.dp, safaColors.goldPrimary.copy(alpha = 0.5f))
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(16.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(46.dp)
+                                    .background(safaColors.goldGlow, CircleShape),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.AccountCircle,
+                                    contentDescription = null,
+                                    tint = safaColors.goldPrimary,
+                                    modifier = Modifier.size(28.dp)
+                                )
+                            }
+                            Spacer(modifier = Modifier.width(14.dp))
+                            Column {
+                                Text(
+                                    text = if (authUser != null) {
+                                        authUser?.displayName ?: "Signed In"
+                                    } else {
+                                        "Sign In & Streak Sync"
+                                    },
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    color = safaColors.textPrimary
+                                )
+                                Text(
+                                    text = if (authUser != null) {
+                                        "Account active • Streak saved & protected"
+                                    } else {
+                                        "Google, Email, or Guest • Keep prayer streak"
+                                    },
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = safaColors.textSecondary
+                                )
+                            }
+                        }
+
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = safaColors.goldPrimary.copy(alpha = 0.15f),
+                            border = BorderStroke(1.dp, safaColors.goldPrimary.copy(alpha = 0.3f))
+                        ) {
+                            Text(
+                                text = if (authUser != null) "Active" else "Link",
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.Bold,
+                                color = safaColors.goldPrimary
+                            )
+                        }
+                    }
+                }
+            }
+
             // SAFA BRAND IDENTITY & THEME STUDIO
             item {
                 Spacer(modifier = Modifier.height(4.dp))

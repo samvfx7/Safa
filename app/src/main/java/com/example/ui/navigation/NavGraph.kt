@@ -88,6 +88,8 @@ import androidx.navigation.navArgument
 import com.example.IslamicApp
 import com.example.navigation.Screen
 import com.example.ui.components.StartupQuoteDialog
+import com.example.ui.screens.auth.AuthScreen
+import com.example.ui.screens.auth.AuthViewModel
 import com.example.ui.screens.bookmarks.BookmarksScreen
 import com.example.ui.screens.duas.DuasScreen
 import com.example.ui.screens.duas.DuasViewModel
@@ -353,7 +355,8 @@ fun AppNavigation(
             composable(Screen.PrayerStreak.route) {
                 PrayerStreakScreen(
                     viewModel = moreViewModel,
-                    onBack = { navController.popBackStack() }
+                    onBack = { navController.popBackStack() },
+                    onNavigateToAuth = { navController.navigate(Screen.Auth.route) }
                 )
             }
 
@@ -379,7 +382,17 @@ fun AppNavigation(
             composable(Screen.Settings.route) {
                 SettingsScreen(
                     settingsRepository = app.settingsRepository,
-                    onBack = { navController.popBackStack() }
+                    onBack = { navController.popBackStack() },
+                    onNavigateToAuth = { navController.navigate(Screen.Auth.route) }
+                )
+            }
+
+            composable(Screen.Auth.route) {
+                val authViewModel = remember { AuthViewModel(app.authRepository) }
+                AuthScreen(
+                    viewModel = authViewModel,
+                    onBack = { navController.popBackStack() },
+                    onAuthSuccess = { navController.popBackStack() }
                 )
             }
 

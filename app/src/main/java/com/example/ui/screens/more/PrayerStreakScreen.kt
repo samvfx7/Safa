@@ -2,6 +2,7 @@ package com.example.ui.screens.more
 
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -19,7 +20,10 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.ArrowForwardIos
+import androidx.compose.material.icons.filled.AccountCircle
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.CloudDone
 import androidx.compose.material.icons.filled.LocalFireDepartment
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.WorkspacePremium
@@ -30,6 +34,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
@@ -38,13 +43,16 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.IslamicApp
 import com.example.ui.theme.IslamicGreen
 import com.example.ui.theme.IslamicGreenLight
 import com.example.ui.theme.LocalSafaColors
@@ -56,10 +64,14 @@ import com.example.ui.theme.SafaSpacing
 fun PrayerStreakScreen(
     viewModel: MoreViewModel,
     onBack: () -> Unit,
+    onNavigateToAuth: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val uiState by viewModel.uiState.collectAsState()
     val safaColors = LocalSafaColors.current
+    val context = LocalContext.current
+    val app = context.applicationContext as IslamicApp
+    val authUser by app.authRepository.currentUser.collectAsState()
 
     Scaffold(
         modifier = modifier.fillMaxSize(),
@@ -145,6 +157,76 @@ fun PrayerStreakScreen(
                                 color = if (safaColors.isLuxuryNavy) safaColors.goldChampagne.copy(alpha = 0.9f) else safaColors.textSecondary
                             )
                         }
+                    }
+                }
+            }
+
+            // Streak Account & Backup Card
+            item {
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(SafaSpacing.cardRadius))
+                        .clickable { onNavigateToAuth() }
+                        .testTag("streak_auth_sync_card"),
+                    shape = RoundedCornerShape(SafaSpacing.cardRadius),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                    border = BorderStroke(1.dp, safaColors.goldBorder.copy(alpha = 0.4f))
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(SafaSpacing.cardContentPadding),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(40.dp)
+                                    .background(safaColors.goldGlow, CircleShape),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = if (authUser != null) Icons.Default.CloudDone else Icons.Default.AccountCircle,
+                                    contentDescription = null,
+                                    tint = safaColors.goldPrimary,
+                                    modifier = Modifier.size(24.dp)
+                                )
+                            }
+                            Spacer(modifier = Modifier.width(12.dp))
+                            Column {
+                                Text(
+                                    text = if (authUser != null) {
+                                        "Streak Synced: ${authUser?.displayName ?: "Active"}"
+                                    } else {
+                                        "Backup & Protect Your Streak"
+                                    },
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    color = safaColors.textPrimary
+                                )
+                                Text(
+                                    text = if (authUser != null) {
+                                        "Linked via ${authUser?.provider?.name ?: "Account"} • Preserved safely"
+                                    } else {
+                                        "Sign in with Google, Email, or Guest"
+                                    },
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = safaColors.textSecondary
+                                )
+                            }
+                        }
+
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.ArrowForwardIos,
+                            contentDescription = null,
+                            tint = safaColors.goldPrimary,
+                            modifier = Modifier.size(16.dp)
+                        )
                     }
                 }
             }

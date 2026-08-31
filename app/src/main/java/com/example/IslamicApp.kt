@@ -2,6 +2,7 @@ package com.example
 
 import android.app.Application
 import com.example.audio.AudioPlayerHelper
+import com.example.data.auth.AuthRepository
 import com.example.data.local.NoorDatabase
 import com.example.data.repository.BookmarkRepository
 import com.example.data.repository.DuaRepository
@@ -40,6 +41,9 @@ class IslamicApp : Application() {
     lateinit var bookmarkRepository: BookmarkRepository
         private set
 
+    lateinit var authRepository: AuthRepository
+        private set
+
     lateinit var settingsRepository: SettingsRepository
         private set
 
@@ -60,6 +64,7 @@ class IslamicApp : Application() {
         instance = this
 
         database = NoorDatabase.getDatabase(this)
+        authRepository = AuthRepository(this)
         settingsRepository = SettingsRepository(this)
         prayerNotificationManager = PrayerNotificationManager(this, settingsRepository)
         prayerRepository = PrayerRepository(database.prayerDao(), database.prayerLogDao(), settingsRepository)

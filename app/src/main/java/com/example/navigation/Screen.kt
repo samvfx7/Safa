@@ -23,4 +23,5 @@ sealed class Screen(val route: String, val title: String) {
     data object Settings : Screen("settings", "Settings")
     data object Bookmarks : Screen("bookmarks", "Saved Bookmarks")
     data object WuduTimer : Screen("wudu_timer", "Wudu Timer")
+    data object Auth : Screen("auth", "Account & Streak Sync")
 }
