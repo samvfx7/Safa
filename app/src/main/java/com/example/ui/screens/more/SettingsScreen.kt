@@ -602,12 +602,157 @@ fun SettingsScreen(
             // Prayer Alerts & Notifications
             item {
                 Text(
-                    text = "PRAYER ALERTS & NOTIFICATIONS",
+                    text = "PRAYER ALERTS & FAJR ALARM RELIABILITY",
                     style = MaterialTheme.typography.labelSmall,
                     fontWeight = FontWeight.Bold,
                     color = safaColors.textSecondary,
                     letterSpacing = 1.sp
                 )
+            }
+
+            // Fajr Alarm Reliability Status Banner
+            item {
+                val hasExactAlarm = permState.hasExactAlarmPermission
+                val hasNotif = permState.hasNotificationPermission
+                val isFajrEnabled = settings.notifyFajr
+
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("fajr_alarm_reliability_card"),
+                    shape = RoundedCornerShape(SafaSpacing.cardRadius),
+                    colors = CardDefaults.cardColors(
+                        containerColor = when {
+                            !isFajrEnabled -> MaterialTheme.colorScheme.surface
+                            !hasNotif || !hasExactAlarm -> Color(0xFF2C1E08)
+                            else -> safaColors.goldGlow.copy(alpha = 0.2f)
+                        }
+                    ),
+                    border = BorderStroke(
+                        1.dp,
+                        when {
+                            !isFajrEnabled -> safaColors.navyBorder.copy(alpha = 0.3f)
+                            !hasNotif || !hasExactAlarm -> Color(0xFFE5A638)
+                            else -> safaColors.goldPrimary.copy(alpha = 0.5f)
+                        }
+                    )
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(32.dp)
+                                        .background(
+                                            when {
+                                                !isFajrEnabled -> safaColors.textSecondary.copy(alpha = 0.2f)
+                                                !hasNotif || !hasExactAlarm -> Color(0xFFE5A638).copy(alpha = 0.2f)
+                                                else -> safaColors.goldPrimary.copy(alpha = 0.2f)
+                                            },
+                                            CircleShape
+                                        ),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Notifications,
+                                        contentDescription = null,
+                                        tint = when {
+                                            !isFajrEnabled -> safaColors.textSecondary
+                                            !hasNotif || !hasExactAlarm -> Color(0xFFE5A638)
+                                            else -> safaColors.goldPrimary
+                                        },
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                }
+
+                                Text(
+                                    text = "Fajr Alarm System Status",
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    color = safaColors.textPrimary
+                                )
+                            }
+
+                            Surface(
+                                shape = RoundedCornerShape(8.dp),
+                                color = when {
+                                    !isFajrEnabled -> safaColors.textSecondary.copy(alpha = 0.15f)
+                                    !hasNotif || !hasExactAlarm -> Color(0xFFE5A638).copy(alpha = 0.2f)
+                                    else -> safaColors.goldPrimary.copy(alpha = 0.2f)
+                                }
+                            ) {
+                                Text(
+                                    text = when {
+                                        !isFajrEnabled -> "Disabled"
+                                        !hasNotif -> "No Notif Perm"
+                                        !hasExactAlarm -> "No Exact Alarm"
+                                        else -> "🟢 OS Scheduled"
+                                    },
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                    style = MaterialTheme.typography.labelSmall,
+                                    fontWeight = FontWeight.Bold,
+                                    color = when {
+                                        !isFajrEnabled -> safaColors.textSecondary
+                                        !hasNotif || !hasExactAlarm -> Color(0xFFE5A638)
+                                        else -> safaColors.goldPrimary
+                                    }
+                                )
+                            }
+                        }
+
+                        Text(
+                            text = when {
+                                !isFajrEnabled -> "Fajr alarm is toggled off. Enable below to receive Adhan calls."
+                                !hasNotif -> "Notifications are disabled for Safa. Grant permission so your device can ring at Fajr time."
+                                !hasExactAlarm -> "Exact Alarms permission is required on Android 12+ to ring reliably while phone is sleeping."
+                                else -> "Fajr alarm is scheduled via Android AlarmManager (AlarmClock mode). It will trigger even when app is closed or phone is idle."
+                            },
+                            style = MaterialTheme.typography.bodySmall,
+                            color = safaColors.textSecondary,
+                            lineHeight = 18.sp
+                        )
+
+                        if (isFajrEnabled && (!hasNotif || !hasExactAlarm)) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                if (!hasNotif) {
+                                    Button(
+                                        onClick = { showPermissionDialog = true },
+                                        colors = ButtonDefaults.buttonColors(containerColor = safaColors.goldPrimary),
+                                        shape = RoundedCornerShape(10.dp),
+                                        modifier = Modifier.weight(1f).height(38.dp)
+                                    ) {
+                                        Text("Enable Notifs", color = SafaNavyDark, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                                    }
+                                }
+                                if (!hasExactAlarm) {
+                                    Button(
+                                        onClick = { permissionManager.openExactAlarmSettings(context) },
+                                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFE5A638)),
+                                        shape = RoundedCornerShape(10.dp),
+                                        modifier = Modifier.weight(1f).height(38.dp)
+                                    ) {
+                                        Text("Grant Exact Alarm", color = SafaNavyDark, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
             }
 
             item {

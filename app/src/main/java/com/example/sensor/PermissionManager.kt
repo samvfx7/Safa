@@ -1,6 +1,7 @@
 package com.example.sensor
 
 import android.Manifest
+import android.app.AlarmManager
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -26,6 +27,7 @@ data class AppPermissionState(
     val hasLocationPermission: Boolean = false,
     val hasNotificationPermission: Boolean = false,
     val hasCameraPermission: Boolean = false,
+    val hasExactAlarmPermission: Boolean = true,
     val isInitialPromptShown: Boolean = false
 )
 
@@ -95,12 +97,20 @@ class PermissionManager(private val context: Context) {
             Manifest.permission.CAMERA
         ) == PackageManager.PERMISSION_GRANTED
 
+        val hasExactAlarm = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as? AlarmManager
+            alarmManager?.canScheduleExactAlarms() ?: true
+        } else {
+            true
+        }
+
         val isShown = prefs.getBoolean("has_prompted_initial_permissions", false)
 
         val state = AppPermissionState(
             hasLocationPermission = hasLocation,
             hasNotificationPermission = hasNotification,
             hasCameraPermission = hasCamera,
+            hasExactAlarmPermission = hasExactAlarm,
             isInitialPromptShown = isShown
         )
         _permissionState.value = state
@@ -124,6 +134,22 @@ class PermissionManager(private val context: Context) {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK
         }
         context.startActivity(intent)
+    }
+
+    fun openExactAlarmSettings(context: Context) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            try {
+                val intent = Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM).apply {
+                    data = Uri.parse("package:${context.packageName}")
+                    flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                }
+                context.startActivity(intent)
+            } catch (e: Exception) {
+                openAppSettings(context)
+            }
+        } else {
+            openAppSettings(context)
+        }
     }
 
     /**
