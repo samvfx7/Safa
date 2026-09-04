@@ -391,7 +391,8 @@ fun AppNavigation(
                 SettingsScreen(
                     settingsRepository = app.settingsRepository,
                     onBack = { navController.popBackStack() },
-                    onNavigateToAuth = { navController.navigate(Screen.Auth.route) }
+                    onNavigateToAuth = { navController.navigate(Screen.Auth.route) },
+                    onNavigateToAlarmTest = { navController.navigate("fajr_alarm?isTest=true") }
                 )
             }
 
@@ -426,7 +427,13 @@ fun AppNavigation(
 
             // Fajr Mat Alarm Experience with Vertical Modal Slide
             composable(
-                route = Screen.FajrAlarm.route,
+                route = "fajr_alarm?isTest={isTest}",
+                arguments = listOf(
+                    navArgument("isTest") {
+                        type = NavType.BoolType
+                        defaultValue = false
+                    }
+                ),
                 enterTransition = {
                     slideInVertically(
                         initialOffsetY = { it },
@@ -451,11 +458,15 @@ fun AppNavigation(
                         animationSpec = spring(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = Spring.StiffnessMediumLow)
                     ) + fadeOut(tween(200))
                 }
-            ) {
+            ) { backStackEntry ->
+                val isTest = backStackEntry.arguments?.getBoolean("isTest") ?: false
                 FajrAlarmScreen(
+                    isTestAlarm = isTest,
                     onDismiss = { navController.popBackStack() },
                     onPrayerCompleted = {
-                        prayerViewModel.togglePrayerCompleted("fajr", true)
+                        if (!isTest) {
+                            prayerViewModel.togglePrayerCompleted("fajr", true)
+                        }
                         navController.popBackStack()
                     }
                 )

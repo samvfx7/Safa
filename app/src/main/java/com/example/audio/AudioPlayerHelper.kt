@@ -143,7 +143,7 @@ class AudioPlayerHelper(private val context: Context) {
                         errorMessage = "Audio playback error ($what, $extra)"
                     )
                     stopProgressUpdates()
-                    false
+                    true
                 }
                 prepareAsync()
             }
@@ -215,7 +215,7 @@ class AudioPlayerHelper(private val context: Context) {
                         errorMessage = "Ayah audio error"
                     )
                     stopProgressUpdates()
-                    false
+                    true
                 }
                 prepareAsync()
             }
@@ -268,7 +268,7 @@ class AudioPlayerHelper(private val context: Context) {
                         currentTrackId = null
                     )
                     stopProgressUpdates()
-                    false
+                    true
                 }
                 prepareAsync()
             }
@@ -434,44 +434,106 @@ class AudioPlayerHelper(private val context: Context) {
         }
     }
 
-    fun playAdhanAlarm(volume: Float = 0.6f, onComplete: () -> Unit = {}) {
+    fun playAdhanAlarm(
+        soundName: String = "Makkah Adhan",
+        customUri: String? = null,
+        volume: Float = 0.6f,
+        onDiagnosticResult: ((Boolean, String?, String) -> Unit)? = null
+    ) {
         stop()
         _playerState.value = _playerState.value.copy(
-            currentTrackId = "adhan_alarm",
+            currentTrackId = "fajr_alarm_$soundName",
             isPlaying = true
         )
 
-        val adhanUrl = "https://cdn.aladhan.com/audio/adhans/makkah.mp3"
+        val soundUrlOrUri = when (soundName) {
+            "Madinah Adhan" -> "https://cdn.aladhan.com/audio/adhans/madinah.mp3"
+            "Mishary Alafasy Adhan" -> "https://cdn.aladhan.com/audio/adhans/mishary.mp3"
+            "Soft Morning Chime" -> "https://cdn.aladhan.com/audio/adhans/fajr_soft.mp3"
+            "Custom Sound", "Custom Sound / Song" -> {
+                val localFile = java.io.File(context.filesDir, "custom_fajr_alarm.mp3")
+                if (localFile.exists() && localFile.length() > 0) {
+                    Uri.fromFile(localFile).toString()
+                } else if (!customUri.isNullOrEmpty()) {
+                    customUri
+                } else {
+                    // Fallback to Makkah if custom URI missing
+                    "https://cdn.aladhan.com/audio/adhans/makkah.mp3"
+                }
+            }
+            else -> "https://cdn.aladhan.com/audio/adhans/makkah.mp3"
+        }
+
+        val resolvedLabel = when (soundName) {
+            "Custom Sound", "Custom Sound / Song" -> "Custom Audio ($soundUrlOrUri)"
+            else -> soundName
+        }
 
         try {
+            // Request Audio Focus for Alarm
+            val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as? android.media.AudioManager
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                audioManager?.requestAudioFocus(
+                    android.media.AudioFocusRequest.Builder(android.media.AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_EXCLUSIVE)
+                        .setAudioAttributes(
+                            AudioAttributes.Builder()
+                                .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
+                                .setUsage(AudioAttributes.USAGE_ALARM)
+                                .build()
+                        ).build()
+                )
+            } else {
+                @Suppress("DEPRECATION")
+                audioManager?.requestAudioFocus(
+                    null,
+                    android.media.AudioManager.STREAM_ALARM,
+                    android.media.AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_EXCLUSIVE
+                )
+            }
+
             mediaPlayer = MediaPlayer().apply {
                 setAudioAttributes(
                     AudioAttributes.Builder()
-                        .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                        .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
                         .setUsage(AudioAttributes.USAGE_ALARM)
                         .build()
                 )
                 setVolume(volume, volume)
                 isLooping = true
-                setDataSource(context, Uri.parse(adhanUrl))
+
+                if (soundUrlOrUri.startsWith("content://") || soundUrlOrUri.startsWith("file://")) {
+                    setDataSource(context, Uri.parse(soundUrlOrUri))
+                } else {
+                    setDataSource(context, Uri.parse(soundUrlOrUri))
+                }
+
                 setOnPreparedListener { mp ->
                     mp.start()
                     _playerState.value = _playerState.value.copy(isPlaying = true)
+                    onDiagnosticResult?.invoke(true, null, resolvedLabel)
                 }
-                setOnErrorListener { _, _, _ ->
-                    _playerState.value = _playerState.value.copy(isPlaying = true)
-                    false
+                setOnErrorListener { _, what, extra ->
+                    val error = "MediaPlayer playback error ($what, $extra)"
+                    _playerState.value = _playerState.value.copy(isPlaying = false, errorMessage = error)
+                    onDiagnosticResult?.invoke(false, error, resolvedLabel)
+                    true
                 }
                 prepareAsync()
             }
         } catch (e: Exception) {
-            _playerState.value = _playerState.value.copy(isPlaying = true)
+            val error = "Failed to load alarm audio: ${e.localizedMessage ?: e.javaClass.simpleName}"
+            _playerState.value = _playerState.value.copy(isPlaying = false, errorMessage = error)
+            onDiagnosticResult?.invoke(false, error, resolvedLabel)
         }
     }
 
     fun setAlarmVolume(volume: Float) {
         val clamped = volume.coerceIn(0f, 1f)
-        mediaPlayer?.setVolume(clamped, clamped)
+        try {
+            mediaPlayer?.setVolume(clamped, clamped)
+        } catch (e: Exception) {
+            // ignore
+        }
     }
 
     private fun startProgressUpdates() {
@@ -481,7 +543,13 @@ class AudioPlayerHelper(private val context: Context) {
             while (isActive) {
                 try {
                     mediaPlayer?.let { mp ->
-                        if (mp.isPlaying) {
+                        var isCurrentlyPlaying = false
+                        try {
+                            isCurrentlyPlaying = mp.isPlaying
+                        } catch (e: Exception) {
+                            // ignore state exception
+                        }
+                        if (isCurrentlyPlaying) {
                             _playerState.value = _playerState.value.copy(
                                 currentPositionMs = mp.currentPosition.toLong(),
                                 durationMs = mp.duration.toLong().coerceAtLeast(1L),
@@ -504,18 +572,45 @@ class AudioPlayerHelper(private val context: Context) {
 
     fun stop() {
         stopProgressUpdates()
-        try {
-            mediaPlayer?.stop()
-            mediaPlayer?.release()
-        } catch (e: Exception) {
-            // ignore
-        } finally {
-            mediaPlayer = null
-            _playerState.value = _playerState.value.copy(
-                isPlaying = false,
-                isBuffering = false,
-                currentTrackId = null
-            )
+        val player = mediaPlayer
+        mediaPlayer = null
+        if (player != null) {
+            try {
+                player.setOnPreparedListener(null)
+                player.setOnCompletionListener(null)
+                player.setOnErrorListener(null)
+                var playing = false
+                try {
+                    playing = player.isPlaying
+                } catch (e: Exception) {
+                    // isPlaying throws in invalid/preparing/stopped states
+                }
+                if (playing) {
+                    try {
+                        player.stop()
+                    } catch (e: Exception) {
+                        // ignore state exception
+                    }
+                }
+            } catch (e: Exception) {
+                // ignore
+            } finally {
+                try {
+                    player.reset()
+                } catch (e: Exception) {
+                    // ignore
+                }
+                try {
+                    player.release()
+                } catch (e: Exception) {
+                    // ignore
+                }
+            }
         }
+        _playerState.value = _playerState.value.copy(
+            isPlaying = false,
+            isBuffering = false,
+            currentTrackId = null
+        )
     }
 }

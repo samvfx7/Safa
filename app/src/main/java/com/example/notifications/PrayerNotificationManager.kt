@@ -258,6 +258,63 @@ class PrayerNotificationManager(
         }
     }
 
+    /**
+     * Schedules a REAL OS Test Alarm for Fajr that triggers via AlarmManager & PrayerAlarmReceiver
+     * after delaySeconds (e.g. 10s, 30s, 60s). This goes through the exact same OS alarm pipeline
+     * without modifying the real next Fajr alarm schedule.
+     */
+    fun scheduleScheduledTestAlarm(delaySeconds: Int): Long {
+        val triggerTime = System.currentTimeMillis() + (delaySeconds * 1000L)
+        val requestCode = REQ_TEST_ALARM
+
+        cancelAlarm(requestCode)
+
+        val intent = Intent(context, PrayerAlarmReceiver::class.java).apply {
+            putExtra(PrayerAlarmReceiver.EXTRA_PRAYER_NAME, "Fajr")
+            putExtra(PrayerAlarmReceiver.EXTRA_IS_TEST, true)
+            putExtra(PrayerAlarmReceiver.EXTRA_IS_REMINDER, false)
+        }
+
+        val pendingIntent = PendingIntent.getBroadcast(
+            context,
+            requestCode,
+            intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
+        val showIntent = Intent(context, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+            putExtra("START_DESTINATION", "fajr_alarm?isTest=true")
+        }
+        val showPendingIntent = PendingIntent.getActivity(
+            context,
+            requestCode + 1000,
+            showIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
+        Log.d("FajrAlarmPipeline", "Scheduling REAL Test Alarm in $delaySeconds seconds (at $triggerTime)")
+
+        try {
+            val canScheduleExact = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                alarmManager.canScheduleExactAlarms()
+            } else {
+                true
+            }
+
+            if (canScheduleExact) {
+                val clockInfo = AlarmManager.AlarmClockInfo(triggerTime, showPendingIntent)
+                alarmManager.setAlarmClock(clockInfo, pendingIntent)
+            } else {
+                alarmManager.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerTime, pendingIntent)
+            }
+        } catch (e: Exception) {
+            Log.e("FajrAlarmPipeline", "Error scheduling test alarm", e)
+        }
+
+        return triggerTime
+    }
+
     private data class PrayerScheduleConfig(
         val name: String,
         val timeStr: String,
@@ -270,6 +327,7 @@ class PrayerNotificationManager(
         const val FAJR_CHANNEL_ID = "fajr_alarm_channel"
         const val PRAYER_CHANNEL_ID = "prayer_times_channel"
 
+        const val REQ_TEST_ALARM = 999
         const val REQ_FAJR_EXACT = 100
         const val REQ_FAJR_REMINDER = 101
         const val REQ_DHUHR_EXACT = 200

@@ -1,5 +1,10 @@
 package com.example.ui.screens.more
 
+import android.net.Uri
+import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import com.example.data.repository.FajrAlarmTestDiagnostics
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -101,9 +106,11 @@ fun SettingsScreen(
     settingsRepository: SettingsRepository,
     onBack: () -> Unit,
     onNavigateToAuth: () -> Unit = {},
+    onNavigateToAlarmTest: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val settings by settingsRepository.settingsState.collectAsState()
+    val testResult by FajrAlarmTestDiagnostics.latestResult.collectAsState()
     val safaColors = LocalSafaColors.current
     var showMethodDialog by remember { mutableStateOf(false) }
 
@@ -113,6 +120,29 @@ fun SettingsScreen(
     val permissionManager = app.permissionManager
     val permState by permissionManager.permissionState.collectAsState()
     var showPermissionDialog by remember { mutableStateOf(false) }
+
+    val audioPickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument()
+    ) { uri: Uri? ->
+        if (uri != null) {
+            try {
+                val takeFlags = android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION
+                context.contentResolver.takePersistableUriPermission(uri, takeFlags)
+
+                val destFile = java.io.File(context.filesDir, "custom_fajr_alarm.mp3")
+                context.contentResolver.openInputStream(uri)?.use { input ->
+                    destFile.outputStream().use { output ->
+                        input.copyTo(output)
+                    }
+                }
+
+                settingsRepository.updateFajrAlarmSound("Custom Sound", destFile.absolutePath)
+                Toast.makeText(context, "Custom Fajr alarm audio saved!", Toast.LENGTH_SHORT).show()
+            } catch (e: Exception) {
+                Toast.makeText(context, "Failed to save file: ${e.localizedMessage}", Toast.LENGTH_LONG).show()
+            }
+        }
+    }
 
     val themeOptions = listOf(
         ThemeOption(
@@ -747,6 +777,250 @@ fun SettingsScreen(
                                         modifier = Modifier.weight(1f).height(38.dp)
                                     ) {
                                         Text("Grant Exact Alarm", color = SafaNavyDark, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Fajr Alarm Sound Selection Card
+            item {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(SafaSpacing.cardRadius),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                    border = BorderStroke(1.dp, safaColors.goldBorder.copy(alpha = 0.3f))
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Text(
+                            text = "Fajr Alarm Sound / Song",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = safaColors.textPrimary
+                        )
+                        Text(
+                            text = "Select the audio recited when your Fajr alarm rings. You can also pick a custom MP3/WAV song or recording.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = safaColors.textSecondary
+                        )
+
+                        val soundOptions = listOf(
+                            "Makkah Adhan",
+                            "Madinah Adhan",
+                            "Mishary Alafasy Adhan",
+                            "Soft Morning Chime",
+                            "Custom Sound"
+                        )
+
+                        soundOptions.forEach { soundName ->
+                            val isSelected = settings.fajrAlarmSound == soundName
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .clickable {
+                                        if (soundName == "Custom Sound") {
+                                            audioPickerLauncher.launch(arrayOf("audio/*"))
+                                        } else {
+                                            settingsRepository.updateFajrAlarmSound(soundName, null)
+                                        }
+                                    }
+                                    .padding(vertical = 4.dp, horizontal = 8.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    RadioButton(
+                                        selected = isSelected,
+                                        onClick = {
+                                            if (soundName == "Custom Sound") {
+                                                audioPickerLauncher.launch(arrayOf("audio/*"))
+                                            } else {
+                                                settingsRepository.updateFajrAlarmSound(soundName, null)
+                                            }
+                                        },
+                                        colors = RadioButtonDefaults.colors(selectedColor = safaColors.goldPrimary)
+                                    )
+                                    Text(
+                                        text = soundName,
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                                        color = safaColors.textPrimary
+                                    )
+                                }
+
+                                if (soundName == "Custom Sound" && isSelected && !settings.fajrCustomSoundUri.isNullOrEmpty()) {
+                                    Text(
+                                        text = "Custom file set ✓",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = safaColors.goldPrimary
+                                    )
+                                }
+                            }
+                        }
+
+                        if (settings.fajrAlarmSound == "Custom Sound") {
+                            OutlinedButton(
+                                onClick = { audioPickerLauncher.launch(arrayOf("audio/*")) },
+                                shape = RoundedCornerShape(10.dp),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Icon(Icons.Default.CameraAlt, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    text = if (settings.fajrCustomSoundUri.isNullOrEmpty()) "Pick Custom Audio File..." else "Change Custom Audio File...",
+                                    fontSize = 13.sp
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Real Fajr Alarm Test & Diagnostic Suite
+            item {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(SafaSpacing.cardRadius),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                    border = BorderStroke(1.dp, safaColors.goldPrimary.copy(alpha = 0.5f))
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.AutoAwesome,
+                                contentDescription = null,
+                                tint = safaColors.goldPrimary,
+                                modifier = Modifier.size(20.dp)
+                            )
+                            Text(
+                                text = "Test Fajr Alarm Experience",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = safaColors.textPrimary
+                            )
+                        }
+
+                        Text(
+                            text = "Verify the complete Fajr alarm pipeline (AlarmManager, receiver, full-screen UI, audio focus, selected sound '${settings.fajrAlarmSound}', and dismissal logic) on this device.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = safaColors.textSecondary,
+                            lineHeight = 18.sp
+                        )
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Button(
+                                onClick = { onNavigateToAlarmTest() },
+                                colors = ButtonDefaults.buttonColors(containerColor = safaColors.goldPrimary),
+                                shape = RoundedCornerShape(10.dp),
+                                modifier = Modifier.weight(1.2f).height(44.dp)
+                            ) {
+                                Text("Test Fajr Alarm", color = SafaNavyDark, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                            }
+
+                            OutlinedButton(
+                                onClick = {
+                                    app.prayerNotificationManager.scheduleScheduledTestAlarm(10)
+                                    Toast.makeText(context, "OS Test Alarm scheduled for 10s! Lock screen or exit app to test.", Toast.LENGTH_LONG).show()
+                                },
+                                shape = RoundedCornerShape(10.dp),
+                                modifier = Modifier.weight(1f).height(44.dp)
+                            ) {
+                                Text("10s OS Test", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                            }
+                        }
+
+                        // Diagnostic Report Box if a test has been executed
+                        if (testResult != null) {
+                            Surface(
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(10.dp),
+                                color = if (testResult?.isSuccess == true) safaColors.goldGlow.copy(alpha = 0.2f) else Color(0xFFFFEBEE),
+                                border = BorderStroke(1.dp, if (testResult?.isSuccess == true) safaColors.goldPrimary else Color.Red)
+                            ) {
+                                Column(
+                                    modifier = Modifier.padding(12.dp),
+                                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Text(
+                                            text = "Latest Alarm Test Result",
+                                            style = MaterialTheme.typography.labelLarge,
+                                            fontWeight = FontWeight.Bold,
+                                            color = safaColors.textPrimary
+                                        )
+                                        Surface(
+                                            shape = RoundedCornerShape(6.dp),
+                                            color = if (testResult?.isSuccess == true) safaColors.goldPrimary else Color.Red
+                                        ) {
+                                            Text(
+                                                text = if (testResult?.isSuccess == true) "PASS ✓" else "FAILED ❌",
+                                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                                style = MaterialTheme.typography.labelSmall,
+                                                color = Color.White,
+                                                fontWeight = FontWeight.Bold
+                                            )
+                                        }
+                                    }
+
+                                    Text(
+                                        text = "• Alarm Receiver: ${if (testResult?.alarmTriggered == true) "Triggered ✓" else "Failed"}",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = safaColors.textPrimary
+                                    )
+                                    Text(
+                                        text = "• Alarm UI Launched: ${if (testResult?.alarmUiOpened == true) "Success ✓" else "Failed"}",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = safaColors.textPrimary
+                                    )
+                                    Text(
+                                        text = "• Selected Audio: '${testResult?.soundName}' -> ${if (testResult?.soundLoaded == true) "Stream Active ✓" else "Load Failed ❌"}",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = safaColors.textPrimary
+                                    )
+                                    Text(
+                                        text = "• Audio Focus & Volume: ${testResult?.alarmVolumePercent}% Volume ✓",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = safaColors.textPrimary
+                                    )
+                                    Text(
+                                        text = "• User Dismissal: ${if (testResult?.isDismissed == true) "Dismissed ✓" else "Pending"}",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = safaColors.textPrimary
+                                    )
+
+                                    if (!testResult?.errorMessage.isNullOrEmpty()) {
+                                        Text(
+                                            text = "Error Details: ${testResult?.errorMessage}",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = Color.Red,
+                                            fontWeight = FontWeight.Bold
+                                        )
                                     }
                                 }
                             }

@@ -25,7 +25,9 @@ data class AppSettings(
     val audioRecitationEnabled: Boolean = true,
     val language: String = "English",
     val isDarkMode: Boolean = false,
-    val selectedTheme: String = "safa_sand" // "safa_sand", "safa_luxury", "safa_royal", "safa_light", "classic_warm"
+    val selectedTheme: String = "safa_sand", // "safa_sand", "safa_luxury", "safa_royal", "safa_light", "classic_warm"
+    val fajrAlarmSound: String = "Makkah Adhan", // "Makkah Adhan", "Madinah Adhan", "Mishary Alafasy Adhan", "Soft Morning Chime", "Custom Sound"
+    val fajrCustomSoundUri: String? = null
 )
 
 class SettingsRepository(context: Context) {
@@ -56,7 +58,20 @@ class SettingsRepository(context: Context) {
             audioRecitationEnabled = prefs.getBoolean("audio", true),
             language = prefs.getString("language", "English") ?: "English",
             isDarkMode = prefs.getBoolean("dark_mode", false),
-            selectedTheme = prefs.getString("selected_theme", "safa_sand") ?: "safa_sand"
+            selectedTheme = prefs.getString("selected_theme", "safa_sand") ?: "safa_sand",
+            fajrAlarmSound = prefs.getString("fajr_alarm_sound", "Makkah Adhan") ?: "Makkah Adhan",
+            fajrCustomSoundUri = prefs.getString("fajr_custom_sound_uri", null)
+        )
+    }
+
+    fun updateFajrAlarmSound(soundName: String, customUri: String? = null) {
+        prefs.edit()
+            .putString("fajr_alarm_sound", soundName)
+            .putString("fajr_custom_sound_uri", customUri)
+            .apply()
+        _settingsState.value = _settingsState.value.copy(
+            fajrAlarmSound = soundName,
+            fajrCustomSoundUri = customUri
         )
     }
 
