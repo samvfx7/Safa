@@ -69,6 +69,26 @@ class PrayerAlarmReceiver : BroadcastReceiver() {
                 Log.e("FajrAlarmPipeline", "Error scheduling snooze for $prayerName", e)
             }
         }
+
+        fun cancelSnoozeAlarm(context: Context, prayerName: String = "Fajr") {
+            try {
+                val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as? AlarmManager ?: return
+                val snoozeIntent = Intent(context, PrayerAlarmReceiver::class.java).apply {
+                    putExtra(EXTRA_PRAYER_NAME, prayerName)
+                    putExtra(EXTRA_IS_SNOOZE, true)
+                }
+                val pendingIntent = PendingIntent.getBroadcast(
+                    context,
+                    prayerName.hashCode() + 777,
+                    snoozeIntent,
+                    PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+                )
+                alarmManager.cancel(pendingIntent)
+                Log.d("FajrAlarmPipeline", "Cancelled snooze alarm for $prayerName")
+            } catch (e: Exception) {
+                Log.e("FajrAlarmPipeline", "Error cancelling snooze alarm for $prayerName", e)
+            }
+        }
     }
 
     override fun onReceive(context: Context, intent: Intent) {

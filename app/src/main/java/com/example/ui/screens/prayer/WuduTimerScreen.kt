@@ -12,6 +12,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.ArrowForward
+import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Info
@@ -418,6 +419,33 @@ fun WuduTimerScreen(
             }
 
             Spacer(modifier = Modifier.height(16.dp))
+
+            // Prominent Scan Prayer Mat button
+            Button(
+                onClick = onScanPrayerMatClick,
+                colors = ButtonDefaults.buttonColors(containerColor = safaColors.goldPrimary),
+                shape = RoundedCornerShape(SafaSpacing.pillRadius),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(52.dp)
+                    .testTag("wudu_screen_scan_prayer_mat_button")
+            ) {
+                Icon(
+                    imageVector = Icons.Default.CameraAlt,
+                    contentDescription = null,
+                    tint = SafaNavyDark,
+                    modifier = Modifier.size(20.dp)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = "Scan Prayer Mat",
+                    color = SafaNavyDark,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 16.sp
+                )
+            }
+
+            Spacer(modifier = Modifier.height(12.dp))
 
             // 4. Primary Progression Controllers (Back / Next / Complete buttons)
             Row(

@@ -26,13 +26,18 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Alarm
+import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.ArrowForward
 import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.CropFree
 import androidx.compose.material.icons.filled.NotificationsActive
 import androidx.compose.material.icons.filled.VolumeUp
 import androidx.compose.material.icons.filled.Warning
@@ -43,6 +48,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
@@ -120,6 +126,7 @@ fun FajrAlarmScreen(
     val matDetector = remember { PrayerMatDetector() }
 
     var isScanningMode by remember { mutableStateOf(false) }
+    var isWuduTimerMode by remember { mutableStateOf(false) }
     var showPermissionDialog by remember { mutableStateOf(false) }
     var scanAttempts by remember { mutableIntStateOf(0) }
     var alarmVolume by remember { mutableFloatStateOf(0.6f) }
@@ -233,16 +240,41 @@ fun FajrAlarmScreen(
         isMatDetected = true
         detectedColor = color
         currentConfidence = confidence
-        finishAndDismiss()
-    }
-
-    fun handleWuduSnooze() {
+        PrayerAlarmReceiver.cancelSnoozeAlarm(context)
         audioPlayer.stop()
         if (isTestAlarm) {
             val currentResult = FajrAlarmTestDiagnostics.latestResult.value
             FajrAlarmTestDiagnostics.updateResult(
                 currentResult?.copy(
+                    isSuccess = true,
+                    soundLoaded = true,
+                    errorMessage = null,
                     isDismissed = true
+                ) ?: FajrAlarmTestResult(
+                    isSuccess = true,
+                    soundName = settingsState.fajrAlarmSound,
+                    alarmTriggered = true,
+                    alarmUiOpened = true,
+                    soundLoaded = true,
+                    audioPlaying = false,
+                    isDismissed = true
+                )
+            )
+        }
+        finishAndDismiss()
+    }
+
+    fun handleWuduSnooze() {
+        audioPlayer.stop()
+        audioPlaying = false
+        if (isTestAlarm) {
+            val currentResult = FajrAlarmTestDiagnostics.latestResult.value
+            FajrAlarmTestDiagnostics.updateResult(
+                currentResult?.copy(
+                    isSuccess = true,
+                    soundLoaded = soundLoaded || currentResult.soundLoaded,
+                    errorMessage = null,
+                    isDismissed = false
                 ) ?: FajrAlarmTestResult(
                     isSuccess = true,
                     soundName = settingsState.fajrAlarmSound,
@@ -250,7 +282,7 @@ fun FajrAlarmScreen(
                     alarmUiOpened = true,
                     soundLoaded = soundLoaded,
                     audioPlaying = false,
-                    isDismissed = true
+                    isDismissed = false
                 )
             )
         }
@@ -260,8 +292,9 @@ fun FajrAlarmScreen(
             delayMinutes = 10,
             isTest = isTestAlarm
         )
-        Toast.makeText(context, "Alarm snoozed for 10 minutes. Go make wudu 💧", Toast.LENGTH_LONG).show()
-        onDismiss()
+        Toast.makeText(context, "Alarm snoozed for 10 minutes. Wudu timer active 💧", Toast.LENGTH_SHORT).show()
+        isWuduTimerMode = true
+        isScanningMode = false
     }
 
     Surface(
@@ -341,6 +374,21 @@ fun FajrAlarmScreen(
                 onFailAttempt = { handleScanFailed() },
                 onWuduSnooze = { handleWuduSnooze() },
                 onCancelScan = { isScanningMode = false }
+            )
+        } else if (isWuduTimerMode) {
+            // Live Wudu Timer View: counts down & up, shows Sunnah steps, and prominent Scan Prayer Mat button
+            FajrWuduLiveTimerView(
+                snoozeTotalSeconds = 600,
+                onScanPrayerMat = { startScanning() },
+                onDismissAlarm = { finishAndDismiss() },
+                onBackToAlarm = {
+                    isWuduTimerMode = false
+                    audioPlayer.playAdhanAlarm(
+                        soundName = settingsState.fajrAlarmSound,
+                        customUri = settingsState.fajrCustomSoundUri,
+                        volume = alarmVolume
+                    )
+                }
             )
         } else {
             // Main Fajr Alarm Full Screen View
@@ -984,4 +1032,398 @@ private fun CameraXMatScannerPreview(
         },
         modifier = modifier
     )
+}
+
+data class WuduStepItem(
+    val stepNumber: Int,
+    val title: String,
+    val arabic: String?,
+    val instruction: String,
+    val repetition: String
+)
+
+@Composable
+fun FajrWuduLiveTimerView(
+    snoozeTotalSeconds: Int = 600,
+    onScanPrayerMat: () -> Unit,
+    onDismissAlarm: () -> Unit,
+    onBackToAlarm: () -> Unit
+) {
+    val safaColors = LocalSafaColors.current
+    var remainingSeconds by remember { mutableIntStateOf(snoozeTotalSeconds) }
+    var elapsedSeconds by remember { mutableIntStateOf(0) }
+    var isRunning by remember { mutableStateOf(true) }
+    var currentStepIndex by remember { mutableIntStateOf(0) }
+
+    val wuduSteps = remember {
+        listOf(
+            WuduStepItem(
+                stepNumber = 1,
+                title = "Intention (Niyyah) & Bismillah",
+                arabic = "بِسْمِ اللَّهِ الرَّحْمَنِ الرَّحِيم",
+                instruction = "Formulate a sincere intention in your heart to purify yourself for worship, then say 'Bismillah'.",
+                repetition = "Once"
+            ),
+            WuduStepItem(
+                stepNumber = 2,
+                title = "Wash Both Hands to Wrists",
+                arabic = null,
+                instruction = "Wash your right hand up to the wrist, then your left, rubbing between fingers thoroughly.",
+                repetition = "3 Times"
+            ),
+            WuduStepItem(
+                stepNumber = 3,
+                title = "Rinse Mouth & Nose",
+                arabic = null,
+                instruction = "Take water into your mouth, swirl it completely, and sniff water gently into your nostrils, then blow it out.",
+                repetition = "3 Times"
+            ),
+            WuduStepItem(
+                stepNumber = 4,
+                title = "Wash Entire Face",
+                arabic = null,
+                instruction = "Wash your face from your forehead down to your chin and from ear to ear. Ensure water touches every part.",
+                repetition = "3 Times"
+            ),
+            WuduStepItem(
+                stepNumber = 5,
+                title = "Wash Arms to the Elbows",
+                arabic = null,
+                instruction = "Wash your right arm from fingertips up to and including the elbow, then repeat with your left arm.",
+                repetition = "3 Times (Each)"
+            ),
+            WuduStepItem(
+                stepNumber = 6,
+                title = "Wipe Head & Clean Ears (Masah)",
+                arabic = null,
+                instruction = "Wet hands and run them from hairline to the back of the neck and back once. Clean inside and behind ears with index fingers and thumbs.",
+                repetition = "Once"
+            ),
+            WuduStepItem(
+                stepNumber = 7,
+                title = "Wash Both Feet to the Ankles",
+                arabic = null,
+                instruction = "Wash your right foot up to the ankle, ensuring you clean between the toes with your pinky, then repeat with your left foot.",
+                repetition = "3 Times (Each)"
+            )
+        )
+    }
+
+    // Live ticking timer
+    LaunchedEffect(isRunning) {
+        while (isRunning && remainingSeconds > 0) {
+            delay(1000L)
+            remainingSeconds--
+            elapsedSeconds++
+        }
+    }
+
+    val minutes = remainingSeconds / 60
+    val seconds = remainingSeconds % 60
+    val formattedCountdown = String.format("%02d:%02d", minutes, seconds)
+
+    val elapsedMin = elapsedSeconds / 60
+    val elapsedSec = elapsedSeconds % 60
+    val formattedElapsed = String.format("%02d:%02d", elapsedMin, elapsedSec)
+
+    val progressFraction = (remainingSeconds.toFloat() / snoozeTotalSeconds.toFloat()).coerceIn(0f, 1f)
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color(0xFF070D1E))
+            .verticalScroll(rememberScrollState())
+            .padding(horizontal = 20.dp, vertical = 24.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
+        // Top Bar
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            IconButton(
+                onClick = onBackToAlarm,
+                modifier = Modifier
+                    .size(40.dp)
+                    .background(Color.White.copy(alpha = 0.08f), CircleShape)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.ArrowBack,
+                    contentDescription = "Back to Alarm",
+                    tint = Color.White
+                )
+            }
+
+            Surface(
+                shape = RoundedCornerShape(20.dp),
+                color = safaColors.goldPrimary.copy(alpha = 0.15f),
+                border = BorderStroke(1.dp, safaColors.goldPrimary.copy(alpha = 0.4f))
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.WaterDrop,
+                        contentDescription = null,
+                        tint = safaColors.goldPrimary,
+                        modifier = Modifier.size(14.dp)
+                    )
+                    Text(
+                        text = "WUDU MODE ACTIVE",
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = safaColors.goldPrimary
+                    )
+                }
+            }
+
+            IconButton(
+                onClick = onDismissAlarm,
+                modifier = Modifier
+                    .size(40.dp)
+                    .background(Color.White.copy(alpha = 0.08f), CircleShape)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Close,
+                    contentDescription = "Dismiss",
+                    tint = Color.White.copy(alpha = 0.7f)
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.height(4.dp))
+
+        // Big Circular Live Countdown Timer
+        Box(
+            modifier = Modifier
+                .size(210.dp)
+                .testTag("wudu_live_timer_circle"),
+            contentAlignment = Alignment.Center
+        ) {
+            CircularProgressIndicator(
+                progress = { progressFraction },
+                modifier = Modifier.fillMaxSize(),
+                strokeWidth = 8.dp,
+                color = safaColors.goldPrimary,
+                trackColor = Color.White.copy(alpha = 0.1f)
+            )
+
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center
+            ) {
+                Icon(
+                    imageVector = Icons.Default.WaterDrop,
+                    contentDescription = null,
+                    tint = safaColors.goldPrimary,
+                    modifier = Modifier.size(28.dp)
+                )
+
+                Spacer(modifier = Modifier.height(4.dp))
+
+                Text(
+                    text = formattedCountdown,
+                    style = MaterialTheme.typography.displayMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = Color.White,
+                    letterSpacing = 2.sp
+                )
+
+                Text(
+                    text = "Snooze Remaining",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = Color.White.copy(alpha = 0.6f)
+                )
+
+                Spacer(modifier = Modifier.height(4.dp))
+
+                Surface(
+                    shape = RoundedCornerShape(12.dp),
+                    color = Color.White.copy(alpha = 0.08f)
+                ) {
+                    Text(
+                        text = "Elapsed: $formattedElapsed",
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = safaColors.goldChampagne,
+                        fontWeight = FontWeight.Medium
+                    )
+                }
+            }
+        }
+
+        // Prominent SCAN PRAYER MAT button (Requested by user)
+        Button(
+            onClick = onScanPrayerMat,
+            colors = ButtonDefaults.buttonColors(containerColor = safaColors.goldPrimary),
+            shape = RoundedCornerShape(SafaSpacing.pillRadius),
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(56.dp)
+                .testTag("scan_prayer_mat_from_wudu_button")
+        ) {
+            Icon(
+                imageVector = Icons.Default.CameraAlt,
+                contentDescription = null,
+                tint = SafaNavyDark,
+                modifier = Modifier.size(24.dp)
+            )
+            Spacer(modifier = Modifier.width(10.dp))
+            Text(
+                text = "Scan Prayer Mat",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+                color = SafaNavyDark
+            )
+        }
+
+        // Sunnah Wudu Steps Interactive Guide Card
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(16.dp),
+            colors = CardDefaults.cardColors(containerColor = Color.White.copy(alpha = 0.05f)),
+            border = BorderStroke(1.dp, Color.White.copy(alpha = 0.1f))
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "Sunnah Wudu Guide",
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = safaColors.goldPrimary
+                    )
+                    Surface(
+                        shape = RoundedCornerShape(6.dp),
+                        color = safaColors.goldPrimary.copy(alpha = 0.2f)
+                    ) {
+                        Text(
+                            text = "Step ${currentStepIndex + 1} of ${wuduSteps.size}",
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = safaColors.goldPrimary,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
+                }
+
+                val currentStep = wuduSteps[currentStepIndex]
+
+                Text(
+                    text = currentStep.title,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = Color.White
+                )
+
+                if (currentStep.arabic != null) {
+                    Text(
+                        text = currentStep.arabic,
+                        style = ArabicDisplayStyle,
+                        fontSize = 20.sp,
+                        color = safaColors.goldChampagne,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+
+                Text(
+                    text = currentStep.instruction,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = Color.White.copy(alpha = 0.8f),
+                    lineHeight = 18.sp
+                )
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Surface(
+                        shape = RoundedCornerShape(8.dp),
+                        color = Color.White.copy(alpha = 0.08f)
+                    ) {
+                        Text(
+                            text = "Repetition: ${currentStep.repetition}",
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = Color.White.copy(alpha = 0.7f)
+                        )
+                    }
+
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        IconButton(
+                            onClick = {
+                                if (currentStepIndex > 0) currentStepIndex--
+                            },
+                            enabled = currentStepIndex > 0,
+                            modifier = Modifier
+                                .size(36.dp)
+                                .background(
+                                    if (currentStepIndex > 0) Color.White.copy(alpha = 0.1f) else Color.Transparent,
+                                    CircleShape
+                                )
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.ArrowBack,
+                                contentDescription = "Previous Step",
+                                tint = if (currentStepIndex > 0) Color.White else Color.White.copy(alpha = 0.3f),
+                                modifier = Modifier.size(16.dp)
+                            )
+                        }
+
+                        IconButton(
+                            onClick = {
+                                if (currentStepIndex < wuduSteps.lastIndex) currentStepIndex++
+                            },
+                            enabled = currentStepIndex < wuduSteps.lastIndex,
+                            modifier = Modifier
+                                .size(36.dp)
+                                .background(
+                                    if (currentStepIndex < wuduSteps.lastIndex) safaColors.goldPrimary.copy(alpha = 0.2f) else Color.Transparent,
+                                    CircleShape
+                                )
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.ArrowForward,
+                                contentDescription = "Next Step",
+                                tint = if (currentStepIndex < wuduSteps.lastIndex) safaColors.goldPrimary else Color.White.copy(alpha = 0.3f),
+                                modifier = Modifier.size(16.dp)
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
+        // Secondary Dismiss button
+        OutlinedButton(
+            onClick = onDismissAlarm,
+            colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White.copy(alpha = 0.7f)),
+            border = BorderStroke(1.dp, Color.White.copy(alpha = 0.2f)),
+            shape = RoundedCornerShape(SafaSpacing.pillRadius),
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(48.dp)
+        ) {
+            Text(
+                text = "I'm Done & Ready to Pray (Dismiss Alarm)",
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = FontWeight.Medium,
+                color = Color.White.copy(alpha = 0.8f)
+            )
+        }
+    }
 }

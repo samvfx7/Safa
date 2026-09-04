@@ -446,27 +446,32 @@ class AudioPlayerHelper(private val context: Context) {
             isPlaying = true
         )
 
-        val soundUrlOrUri = when (soundName) {
-            "Madinah Adhan" -> "https://cdn.aladhan.com/audio/adhans/madinah.mp3"
-            "Mishary Alafasy Adhan" -> "https://cdn.aladhan.com/audio/adhans/mishary.mp3"
-            "Soft Morning Chime" -> "https://cdn.aladhan.com/audio/adhans/fajr_soft.mp3"
-            "Custom Sound", "Custom Sound / Song" -> {
-                val localFile = java.io.File(context.filesDir, "custom_fajr_alarm.mp3")
-                if (localFile.exists() && localFile.length() > 0) {
-                    Uri.fromFile(localFile).toString()
-                } else if (!customUri.isNullOrEmpty()) {
-                    customUri
-                } else {
-                    // Fallback to Makkah if custom URI missing
-                    "https://cdn.aladhan.com/audio/adhans/makkah.mp3"
-                }
+        // Resolve audio source: custom file if valid, otherwise generated high-quality local alarm audio
+        var targetUri: Uri? = null
+        var resolvedLabel = soundName
+
+        if (soundName == "Custom Sound" || soundName == "Custom Sound / Song") {
+            val localCustomFile = java.io.File(context.filesDir, "custom_fajr_alarm.mp3")
+            if (localCustomFile.exists() && localCustomFile.length() > 0) {
+                targetUri = Uri.fromFile(localCustomFile)
+                resolvedLabel = "Custom File (${localCustomFile.name})"
+            } else if (!customUri.isNullOrEmpty()) {
+                targetUri = Uri.parse(customUri)
+                resolvedLabel = "Custom Audio ($customUri)"
             }
-            else -> "https://cdn.aladhan.com/audio/adhans/makkah.mp3"
         }
 
-        val resolvedLabel = when (soundName) {
-            "Custom Sound", "Custom Sound / Song" -> "Custom Audio ($soundUrlOrUri)"
-            else -> soundName
+        // Default or fallback to local generated alarm sound (offline-safe, instant load)
+        if (targetUri == null) {
+            val localAudio = LocalAlarmAudioGenerator.getOrGenerateAlarmAudio(context, soundName)
+            if (localAudio.exists() && localAudio.length() > 0) {
+                targetUri = Uri.fromFile(localAudio)
+                resolvedLabel = "$soundName (High-Fidelity Audio)"
+            } else {
+                targetUri = android.media.RingtoneManager.getDefaultUri(android.media.RingtoneManager.TYPE_ALARM)
+                    ?: android.media.RingtoneManager.getDefaultUri(android.media.RingtoneManager.TYPE_NOTIFICATION)
+                resolvedLabel = "$soundName (System Sound)"
+            }
         }
 
         try {
@@ -501,11 +506,7 @@ class AudioPlayerHelper(private val context: Context) {
                 setVolume(volume, volume)
                 isLooping = true
 
-                if (soundUrlOrUri.startsWith("content://") || soundUrlOrUri.startsWith("file://")) {
-                    setDataSource(context, Uri.parse(soundUrlOrUri))
-                } else {
-                    setDataSource(context, Uri.parse(soundUrlOrUri))
-                }
+                setDataSource(context, targetUri)
 
                 setOnPreparedListener { mp ->
                     mp.start()
@@ -521,9 +522,32 @@ class AudioPlayerHelper(private val context: Context) {
                 prepareAsync()
             }
         } catch (e: Exception) {
-            val error = "Failed to load alarm audio: ${e.localizedMessage ?: e.javaClass.simpleName}"
-            _playerState.value = _playerState.value.copy(isPlaying = false, errorMessage = error)
-            onDiagnosticResult?.invoke(false, error, resolvedLabel)
+            // Automatic fallback to system alarm ringtone
+            try {
+                val fallbackUri = android.media.RingtoneManager.getDefaultUri(android.media.RingtoneManager.TYPE_ALARM)
+                    ?: android.media.RingtoneManager.getDefaultUri(android.media.RingtoneManager.TYPE_NOTIFICATION)
+                mediaPlayer = MediaPlayer().apply {
+                    setAudioAttributes(
+                        AudioAttributes.Builder()
+                            .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
+                            .setUsage(AudioAttributes.USAGE_ALARM)
+                            .build()
+                    )
+                    setVolume(volume, volume)
+                    isLooping = true
+                    setDataSource(context, fallbackUri)
+                    setOnPreparedListener { mp ->
+                        mp.start()
+                        _playerState.value = _playerState.value.copy(isPlaying = true)
+                        onDiagnosticResult?.invoke(true, null, "$resolvedLabel (System Fallback)")
+                    }
+                    prepareAsync()
+                }
+            } catch (ex: Exception) {
+                val error = "Failed to load alarm audio: ${e.localizedMessage ?: e.javaClass.simpleName}"
+                _playerState.value = _playerState.value.copy(isPlaying = false, errorMessage = error)
+                onDiagnosticResult?.invoke(false, error, resolvedLabel)
+            }
         }
     }
 
