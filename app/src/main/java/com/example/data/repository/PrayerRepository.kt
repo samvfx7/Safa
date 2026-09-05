@@ -156,15 +156,23 @@ class PrayerRepository(
     }
 
     private fun generateFallbackPrayerTimes(today: String, settings: AppSettings): PrayerEntity {
-        val isHanafi = settings.isHanafiAsr
+        val cal = Calendar.getInstance()
+        val solar = com.example.data.util.SolarPrayerCalculator.calculatePrayerTimes(
+            cal,
+            settings.latitude,
+            settings.longitude,
+            settings.calculationMethodId,
+            settings.isHanafiAsr,
+            java.util.TimeZone.getDefault().id
+        )
         return PrayerEntity(
             date = today,
-            fajr = "05:15",
-            sunrise = "06:35",
-            dhuhr = "13:10",
-            asr = if (isHanafi) "17:45" else "16:45",
-            maghrib = "19:40",
-            isha = "21:05",
+            fajr = solar.fajr,
+            sunrise = solar.sunrise,
+            dhuhr = solar.dhuhr,
+            asr = solar.asr,
+            maghrib = solar.maghrib,
+            isha = solar.isha,
             locationName = "${settings.city}, ${settings.country}",
             latitude = settings.latitude,
             longitude = settings.longitude,
@@ -232,9 +240,20 @@ class PrayerRepository(
             }
         }
 
-        val tomorrowFajrCal = parsePrayerTimeToCalendar(todayStr, prayerEntity.fajr, prayerEntity.timezone).apply {
+        val tomorrowCal = Calendar.getInstance(targetTz).apply {
+            timeInMillis = nowMillis
             add(Calendar.DAY_OF_YEAR, 1)
         }
+        val tomorrowDateStr = tzDateFormat.format(tomorrowCal.time)
+        val settings = settingsRepository.settingsState.value
+        val tomorrowFajrTime = com.example.data.util.SolarPrayerCalculator.calculateFajrTime(
+            tomorrowCal,
+            settings.latitude,
+            settings.longitude,
+            settings.calculationMethodId,
+            prayerEntity.timezone
+        )
+        val tomorrowFajrCal = parsePrayerTimeToCalendar(tomorrowDateStr, tomorrowFajrTime, prayerEntity.timezone)
         val diffSec = (tomorrowFajrCal.timeInMillis - nowMillis) / 1000
         val hours = diffSec / 3600
         val mins = (diffSec % 3600) / 60
@@ -250,7 +269,7 @@ class PrayerRepository(
         return NextPrayerInfo(
             nextPrayerName = "Fajr",
             nextPrayerArabicName = "الفجر",
-            nextPrayerTime12h = formatTo12h(prayerEntity.fajr),
+            nextPrayerTime12h = formatTo12h(tomorrowFajrTime),
             remainingSeconds = diffSec,
             formattedRemaining = formatted,
             progress = progress

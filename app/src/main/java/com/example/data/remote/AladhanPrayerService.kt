@@ -34,14 +34,15 @@ interface AladhanPrayerService {
 
 object ApiClient {
     private const val ALADHAN_BASE_URL = "https://api.aladhan.com/"
+    private const val ALQURAN_BASE_URL = "https://api.alquran.cloud/"
 
     private val moshi: Moshi = Moshi.Builder()
         .addLast(KotlinJsonAdapterFactory())
         .build()
 
     private val okHttpClient: OkHttpClient = OkHttpClient.Builder()
-        .connectTimeout(15, TimeUnit.SECONDS)
-        .readTimeout(15, TimeUnit.SECONDS)
+        .connectTimeout(20, TimeUnit.SECONDS)
+        .readTimeout(20, TimeUnit.SECONDS)
         .addInterceptor(HttpLoggingInterceptor().apply {
             level = HttpLoggingInterceptor.Level.BASIC
         })
@@ -54,5 +55,14 @@ object ApiClient {
             .addConverterFactory(MoshiConverterFactory.create(moshi))
             .build()
             .create(AladhanPrayerService::class.java)
+    }
+
+    val alQuranService: AlQuranCloudService by lazy {
+        Retrofit.Builder()
+            .baseUrl(ALQURAN_BASE_URL)
+            .client(okHttpClient)
+            .addConverterFactory(MoshiConverterFactory.create(moshi))
+            .build()
+            .create(AlQuranCloudService::class.java)
     }
 }

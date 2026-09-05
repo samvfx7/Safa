@@ -1,14 +1,18 @@
 package com.example.notifications
 
+import android.Manifest
 import android.app.AlarmManager
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.os.Build
+import android.os.PowerManager
 import android.util.Log
 import androidx.core.app.NotificationCompat
+import androidx.core.content.ContextCompat
 import com.example.MainActivity
 import com.example.R
 import com.example.data.local.NoorDatabase
@@ -21,9 +25,268 @@ import kotlinx.coroutines.launch
 
 class PrayerAlarmReceiver : BroadcastReceiver() {
 
+    override fun onReceive(context: Context, intent: Intent) {
+        val action = intent.action
+        val prayerName = intent.getStringExtra(EXTRA_PRAYER_NAME) ?: "Fajr"
+        val isFajr = prayerName.equals("Fajr", ignoreCase = true)
+
+        Log.d(TAG, "PrayerAlarmReceiver triggered - action: $action, prayer: $prayerName")
+
+        // Acquire a short partial wake lock so the CPU stays awake while building and posting notification
+        val powerManager = context.getSystemService(Context.POWER_SERVICE) as? PowerManager
+        val wakeLock = powerManager?.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "safa:fajr_alarm_receiver")
+        try {
+            wakeLock?.acquire(5000L)
+        } catch (e: Exception) {
+            // Ignore wakelock error
+        }
+
+        // 1. Handle user dismissal action
+        if (action == ACTION_DISMISS_NOTIFICATION) {
+            val notificationId = intent.getIntExtra(EXTRA_NOTIFICATION_ID, PrayerNotificationManager.NOTIFICATION_ID_FAJR)
+            val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            notificationManager.cancel(notificationId)
+            Log.d(TAG, "Fajr notification dismissed by user action (id=$notificationId)")
+            wakeLock?.let { if (it.isHeld) it.release() }
+            return
+        }
+
+        // 2. Handle snooze action
+        if (action == ACTION_SNOOZE_WUDU) {
+            handleSnooze(context, prayerName, intent.getIntExtra(EXTRA_NOTIFICATION_ID, PrayerNotificationManager.NOTIFICATION_ID_FAJR))
+            wakeLock?.let { if (it.isHeld) it.release() }
+            return
+        }
+
+        val isReminder = intent.getBooleanExtra(EXTRA_IS_REMINDER, false)
+        val isSnooze = intent.getBooleanExtra(EXTRA_IS_SNOOZE, false)
+        val isTest = intent.getBooleanExtra(EXTRA_IS_TEST, false)
+        val reminderMinutes = intent.getIntExtra(EXTRA_REMINDER_MINUTES, 10)
+        val timeString = intent.getStringExtra(EXTRA_PRAYER_TIME_STRING) ?: ""
+
+        // 3. Display the Adhan / Prayer Notification
+        showNotification(context, prayerName, isReminder, isSnooze, isTest, reminderMinutes, timeString)
+
+        // 4. Automatically reschedule the NEXT alarm (guaranteeing one authoritative scheduled alarm)
+        if (!isTest && !isReminder && !isSnooze) {
+            autoRescheduleNextAlarms(context, isFajr)
+        }
+
+        wakeLock?.let { if (it.isHeld) it.release() }
+    }
+
+    private fun showNotification(
+        context: Context,
+        prayerName: String,
+        isReminder: Boolean,
+        isSnooze: Boolean,
+        isTest: Boolean,
+        reminderMinutes: Int,
+        timeString: String
+    ) {
+        val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        val isFajr = prayerName.equals("Fajr", ignoreCase = true)
+
+        // Check POST_NOTIFICATIONS permission on Android 13+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            val hasPermission = ContextCompat.checkSelfPermission(
+                context,
+                Manifest.permission.POST_NOTIFICATIONS
+            ) == PackageManager.PERMISSION_GRANTED
+            if (!hasPermission) {
+                Log.w(TAG, "Notification permission (POST_NOTIFICATIONS) is not granted. Cannot display Fajr notification.")
+                return
+            }
+        }
+
+        val channelId = if (isFajr) PrayerNotificationManager.FAJR_CHANNEL_ID else PrayerNotificationManager.PRAYER_CHANNEL_ID
+
+        val notificationId = when {
+            isTest -> PrayerNotificationManager.NOTIFICATION_ID_TEST
+            isReminder -> if (isFajr) PrayerNotificationManager.NOTIFICATION_ID_FAJR_REMINDER else (prayerName.hashCode() + 1)
+            else -> if (isFajr) PrayerNotificationManager.NOTIFICATION_ID_FAJR else prayerName.hashCode()
+        }
+
+        val displayTime = if (timeString.isNotEmpty()) timeString else "05:15"
+
+        // Clear, recognizable titles as requested
+        val title = when {
+            isTest -> "Fajr — It's time to pray [Test Alert]"
+            isSnooze -> "Fajr — It's time to pray (Snooze Elapsed)"
+            isReminder -> "Fajr — Starts in $reminderMinutes minutes"
+            isFajr -> "Fajr — It's time to pray"
+            else -> "Time for $prayerName Prayer"
+        }
+
+        // Informative concise content
+        val content = when {
+            isTest -> "Fajr • $displayTime • Alarm and notification test triggered successfully"
+            isSnooze -> "Fajr • $displayTime • 10-minute Wudu snooze elapsed. Rise for morning prayer."
+            isReminder -> "Fajr begins in $reminderMinutes minutes ($displayTime). Prepare for prayer."
+            isFajr -> "Fajr • $displayTime • الصَّلَاةُ خَيْرٌ مِنَ النَّوْمِ"
+            else -> "$prayerName • $displayTime • It's time for prayer."
+        }
+
+        val bigText = when {
+            isTest -> "Fajr • $displayTime\nSafa test alarm has triggered on schedule.\nAudio and high-priority notification channels are active."
+            isSnooze -> "Fajr • $displayTime\nYour 10-minute Wudu timer has completed.\nBegin your prayer in peace and devotion."
+            isReminder -> "Fajr • $displayTime\nFajr prayer starts in $reminderMinutes minutes.\nTake a moment to make Wudu and prepare."
+            isFajr -> "Fajr • $displayTime\nالصَّلَاةُ خَيْرٌ مِنَ النَّوْمِ — Prayer is better than sleep.\nRise to meet Allah in the peace and tranquility of dawn."
+            else -> "$prayerName • $displayTime\nTake a mindful break to offer your prayer on time."
+        }
+
+        // Main Tap Action: Opens Fajr Alarm screen or Prayer Times
+        val targetDestination = if (isFajr) "fajr_alarm" else "prayer_times"
+        val mainIntent = Intent(context, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+            putExtra("START_DESTINATION", targetDestination)
+        }
+        val mainPendingIntent = PendingIntent.getActivity(
+            context,
+            notificationId,
+            mainIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
+        // Action 1: Dismiss
+        val dismissIntent = Intent(context, PrayerAlarmReceiver::class.java).apply {
+            action = ACTION_DISMISS_NOTIFICATION
+            putExtra(EXTRA_NOTIFICATION_ID, notificationId)
+        }
+        val dismissPendingIntent = PendingIntent.getBroadcast(
+            context,
+            notificationId + 10,
+            dismissIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
+        // Action 2: Open Safa
+        val openSafaIntent = Intent(context, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+            putExtra("START_DESTINATION", "fajr_alarm")
+        }
+        val openSafaPendingIntent = PendingIntent.getActivity(
+            context,
+            notificationId + 20,
+            openSafaIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
+        // Action 3: View Prayer Times
+        val timesIntent = Intent(context, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+            putExtra("START_DESTINATION", "prayer_times")
+        }
+        val timesPendingIntent = PendingIntent.getActivity(
+            context,
+            notificationId + 30,
+            timesIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
+        val builder = NotificationCompat.Builder(context, channelId)
+            .setSmallIcon(R.drawable.ic_safa_notification)
+            .setColor(0xFFC5A059.toInt()) // Safa Gold
+            .setContentTitle(title)
+            .setContentText(content)
+            .setSubText("Safa • Prayer Alert")
+            .setStyle(
+                NotificationCompat.BigTextStyle()
+                    .setBigContentTitle(title)
+                    .setSummaryText("Safa • Fajr Prayer")
+                    .bigText(bigText)
+            )
+            .setAutoCancel(true)
+            .setOngoing(false) // Dismissible by user swipe or dismiss button
+            .setContentIntent(mainPendingIntent)
+            .setPriority(NotificationCompat.PRIORITY_MAX)
+            .setCategory(NotificationCompat.CATEGORY_ALARM)
+            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+            // Useful, reliable actions
+            .addAction(0, "Dismiss", dismissPendingIntent)
+            .addAction(0, "Open Safa", openSafaPendingIntent)
+            .addAction(0, "Prayer Times", timesPendingIntent)
+
+        // For Fajr: Also provide "I'm making Wudu (Snooze 10m)"
+        if (isFajr && !isSnooze) {
+            val snoozeIntent = Intent(context, PrayerAlarmReceiver::class.java).apply {
+                action = ACTION_SNOOZE_WUDU
+                putExtra(EXTRA_PRAYER_NAME, prayerName)
+                putExtra(EXTRA_NOTIFICATION_ID, notificationId)
+            }
+            val snoozePendingIntent = PendingIntent.getBroadcast(
+                context,
+                notificationId + 40,
+                snoozeIntent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+            builder.addAction(0, "Make Wudu (Snooze)", snoozePendingIntent)
+        }
+
+        try {
+            notificationManager.notify(notificationId, builder.build())
+            Log.d(TAG, "Notification successfully posted: id=$notificationId, title=\"$title\", time=$displayTime")
+        } catch (e: Exception) {
+            Log.e(TAG, "Error displaying notification for $prayerName", e)
+        }
+    }
+
+    private fun handleSnooze(context: Context, prayerName: String, notificationId: Int) {
+        val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        if (notificationId != 0) {
+            notificationManager.cancel(notificationId)
+        }
+
+        scheduleSnoozeAlarm(context, prayerName, delayMinutes = 10, isTest = false)
+
+        // Launch MainActivity directly to Wudu Timer
+        val activityIntent = Intent(context, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+            putExtra("START_DESTINATION", "wudu_timer")
+        }
+        context.startActivity(activityIntent)
+    }
+
+    private fun autoRescheduleNextAlarms(context: Context, isFajr: Boolean) {
+        val pendingResult = goAsync()
+        CoroutineScope(Dispatchers.IO).launch {
+            try {
+                Log.d(TAG, "Auto-rescheduling next prayer alarm. isFajr=$isFajr")
+                val db = NoorDatabase.getDatabase(context)
+                val settingsRepo = SettingsRepository(context)
+                val prayerRepo = PrayerRepository(db.prayerDao(), db.prayerLogDao(), settingsRepo)
+                val notificationManager = PrayerNotificationManager(context, settingsRepo)
+
+                if (isFajr) {
+                    // Fajr just triggered! Calculate and schedule TOMORROW'S Fajr accurately
+                    val result = notificationManager.scheduleFajrAlarm(forceTomorrow = true)
+                    Log.d(TAG, "Tomorrow's Fajr rescheduled successfully: $result")
+                } else {
+                    val entity = prayerRepo.refreshPrayerTimes(force = false).getOrNull()
+                        ?: prayerRepo.getLatestPrayerTimes().firstOrNull()
+                    if (entity != null) {
+                        notificationManager.schedulePrayerAlarms(entity)
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Error during auto-rescheduling in receiver", e)
+            } finally {
+                pendingResult.finish()
+            }
+        }
+    }
+
     companion object {
+        const val TAG = "SafaFajrNotification"
+
+        const val ACTION_FAJR_ALARM = "com.example.notifications.ACTION_FAJR_ALARM"
         const val ACTION_SNOOZE_WUDU = "com.example.notifications.ACTION_SNOOZE_WUDU"
+        const val ACTION_DISMISS_NOTIFICATION = "com.example.notifications.ACTION_DISMISS_NOTIFICATION"
+
         const val EXTRA_PRAYER_NAME = "PRAYER_NAME"
+        const val EXTRA_PRAYER_TIME_MILLIS = "PRAYER_TIME_MILLIS"
+        const val EXTRA_PRAYER_TIME_STRING = "PRAYER_TIME_STRING"
+        const val EXTRA_PRAYER_DATE_STRING = "PRAYER_DATE_STRING"
         const val EXTRA_IS_REMINDER = "IS_REMINDER"
         const val EXTRA_IS_SNOOZE = "IS_SNOOZE"
         const val EXTRA_IS_TEST = "IS_TEST"
@@ -38,6 +301,7 @@ class PrayerAlarmReceiver : BroadcastReceiver() {
         ) {
             val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
             val snoozeIntent = Intent(context, PrayerAlarmReceiver::class.java).apply {
+                action = ACTION_FAJR_ALARM
                 putExtra(EXTRA_PRAYER_NAME, prayerName)
                 putExtra(EXTRA_IS_SNOOZE, true)
                 putExtra(EXTRA_IS_TEST, isTest)
@@ -55,18 +319,16 @@ class PrayerAlarmReceiver : BroadcastReceiver() {
             try {
                 val canScheduleExact = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                     alarmManager.canScheduleExactAlarms()
-                } else {
-                    true
-                }
+                } else true
 
                 if (canScheduleExact) {
                     alarmManager.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, snoozeTime, pendingIntent)
                 } else {
                     alarmManager.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, snoozeTime, pendingIntent)
                 }
-                Log.d("FajrAlarmPipeline", "Snoozed $prayerName for $delayMinutes minutes (isTest=$isTest)")
+                Log.d(TAG, "Snoozed $prayerName for $delayMinutes minutes")
             } catch (e: Exception) {
-                Log.e("FajrAlarmPipeline", "Error scheduling snooze for $prayerName", e)
+                Log.e(TAG, "Error scheduling snooze for $prayerName", e)
             }
         }
 
@@ -74,6 +336,7 @@ class PrayerAlarmReceiver : BroadcastReceiver() {
             try {
                 val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as? AlarmManager ?: return
                 val snoozeIntent = Intent(context, PrayerAlarmReceiver::class.java).apply {
+                    action = ACTION_FAJR_ALARM
                     putExtra(EXTRA_PRAYER_NAME, prayerName)
                     putExtra(EXTRA_IS_SNOOZE, true)
                 }
@@ -81,163 +344,16 @@ class PrayerAlarmReceiver : BroadcastReceiver() {
                     context,
                     prayerName.hashCode() + 777,
                     snoozeIntent,
-                    PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+                    PendingIntent.FLAG_NO_CREATE or PendingIntent.FLAG_IMMUTABLE
                 )
-                alarmManager.cancel(pendingIntent)
-                Log.d("FajrAlarmPipeline", "Cancelled snooze alarm for $prayerName")
-            } catch (e: Exception) {
-                Log.e("FajrAlarmPipeline", "Error cancelling snooze alarm for $prayerName", e)
-            }
-        }
-    }
-
-    override fun onReceive(context: Context, intent: Intent) {
-        val prayerName = intent.getStringExtra(EXTRA_PRAYER_NAME) ?: "Fajr"
-        Log.d("FajrAlarmPipeline", "PrayerAlarmReceiver triggered for prayer: $prayerName, action: ${intent.action}")
-
-        if (intent.action == ACTION_SNOOZE_WUDU) {
-            handleSnooze(context, prayerName, intent.getIntExtra(EXTRA_NOTIFICATION_ID, 0))
-            return
-        }
-
-        val isReminder = intent.getBooleanExtra(EXTRA_IS_REMINDER, false)
-        val isSnooze = intent.getBooleanExtra(EXTRA_IS_SNOOZE, false)
-        val isTest = intent.getBooleanExtra(EXTRA_IS_TEST, false)
-        val reminderMinutes = intent.getIntExtra(EXTRA_REMINDER_MINUTES, 10)
-
-        // Display the Adhan / Reminder Notification
-        showNotification(context, prayerName, isReminder, isSnooze, isTest, reminderMinutes)
-
-        // Self-sustaining alarm chain: Automatically trigger rescheduling for upcoming prayers/tomorrow (only for real alarms)
-        if (!isTest) {
-            autoRescheduleAlarms(context)
-        }
-    }
-
-    private fun autoRescheduleAlarms(context: Context) {
-        val pendingResult = goAsync()
-        CoroutineScope(Dispatchers.IO).launch {
-            try {
-                Log.d("FajrAlarmPipeline", "Auto-rescheduling next prayer alarms after alarm trigger")
-                val db = NoorDatabase.getDatabase(context)
-                val settingsRepo = SettingsRepository(context)
-                val prayerRepo = PrayerRepository(db.prayerDao(), db.prayerLogDao(), settingsRepo)
-                val notificationManager = PrayerNotificationManager(context, settingsRepo)
-
-                val entity = prayerRepo.refreshPrayerTimes(force = false).getOrNull()
-                    ?: prayerRepo.getLatestPrayerTimes().firstOrNull()
-
-                if (entity != null) {
-                    notificationManager.schedulePrayerAlarms(entity)
+                if (pendingIntent != null) {
+                    alarmManager.cancel(pendingIntent)
+                    pendingIntent.cancel()
                 }
+                Log.d(TAG, "Cancelled snooze alarm for $prayerName")
             } catch (e: Exception) {
-                Log.e("FajrAlarmPipeline", "Error during auto-rescheduling in receiver", e)
-            } finally {
-                pendingResult.finish()
+                Log.e(TAG, "Error cancelling snooze alarm for $prayerName", e)
             }
-        }
-    }
-
-    private fun handleSnooze(context: Context, prayerName: String, notificationId: Int) {
-        val notificationManager =
-            context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-        if (notificationId != 0) {
-            notificationManager.cancel(notificationId)
-        }
-
-        scheduleSnoozeAlarm(context, prayerName, delayMinutes = 10, isTest = false)
-
-        // Launch MainActivity directly to Wudu Timer
-        val activityIntent = Intent(context, MainActivity::class.java).apply {
-            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
-            putExtra("START_DESTINATION", "wudu_timer")
-        }
-        context.startActivity(activityIntent)
-    }
-
-    private fun showNotification(
-        context: Context,
-        prayerName: String,
-        isReminder: Boolean,
-        isSnooze: Boolean,
-        isTest: Boolean,
-        reminderMinutes: Int
-    ) {
-        val notificationManager =
-            context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-
-        val isFajr = prayerName.equals("Fajr", ignoreCase = true)
-        val channelId = if (isFajr) PrayerNotificationManager.FAJR_CHANNEL_ID else PrayerNotificationManager.PRAYER_CHANNEL_ID
-
-        val title = when {
-            isTest -> "🚨 [TEST ALARM] Fajr Alarm Test Triggered"
-            isSnooze -> "Time to pray $prayerName"
-            isReminder -> "Upcoming: $prayerName"
-            isFajr -> "الصَّلَاةُ خَيْرٌ مِنَ النَّوْمِ • Fajr Prayer"
-            else -> "Time for $prayerName Prayer"
-        }
-
-        val message = when {
-            isTest -> "Tap to open Fajr Alarm Test & test your selected alarm audio stream."
-            isSnooze -> "Ready for $prayerName? (10-min Wudu snooze elapsed)"
-            isReminder -> "$prayerName prayer begins in $reminderMinutes minutes."
-            isFajr -> "It's time for Fajr prayer. Scan your prayer mat in Safa to complete."
-            else -> "It's time to pray $prayerName."
-        }
-
-        val notificationId = if (isTest) 9999 else (prayerName.hashCode() + if (isReminder) 1 else if (isSnooze) 2 else 0)
-
-        val targetDestination = when {
-            isTest -> "fajr_alarm?isTest=true"
-            isFajr -> "fajr_alarm"
-            else -> "prayer_times"
-        }
-
-        // Main Tap Action: Opens full alarm screen for Fajr or prayer times
-        val activityIntent = Intent(context, MainActivity::class.java).apply {
-            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
-            putExtra("START_DESTINATION", targetDestination)
-        }
-        val pendingIntent = PendingIntent.getActivity(
-            context,
-            notificationId,
-            activityIntent,
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-        )
-
-        val builder = NotificationCompat.Builder(context, channelId)
-            .setSmallIcon(R.mipmap.ic_launcher)
-            .setContentTitle(title)
-            .setContentText(message)
-            .setAutoCancel(true)
-            .setContentIntent(pendingIntent)
-            .setPriority(NotificationCompat.PRIORITY_MAX)
-            .setCategory(NotificationCompat.CATEGORY_ALARM)
-            .setFullScreenIntent(pendingIntent, isFajr && !isReminder)
-
-        // Add "I'm making Wudu (Snooze 10m)" action for Fajr
-        if (isFajr && !isSnooze) {
-            val snoozeIntent = Intent(context, MainActivity::class.java).apply {
-                action = ACTION_SNOOZE_WUDU
-                putExtra(EXTRA_PRAYER_NAME, prayerName)
-                putExtra(EXTRA_NOTIFICATION_ID, notificationId)
-                putExtra("START_DESTINATION", "wudu_timer")
-            }
-            val snoozePendingIntent = PendingIntent.getActivity(
-                context,
-                notificationId + 50,
-                snoozeIntent,
-                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-            )
-
-            builder.addAction(0, "I'm making Wudu (Snooze 10m)", snoozePendingIntent)
-        }
-
-        try {
-            notificationManager.notify(notificationId, builder.build())
-            Log.d("FajrAlarmPipeline", "Notification displayed successfully for $prayerName (id=$notificationId)")
-        } catch (e: Exception) {
-            Log.e("FajrAlarmPipeline", "Failed to show notification for $prayerName", e)
         }
     }
 }

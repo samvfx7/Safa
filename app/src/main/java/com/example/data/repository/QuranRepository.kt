@@ -1,10 +1,13 @@
 package com.example.data.repository
 
+import android.util.Log
 import com.example.data.local.dao.BookmarkDao
 import com.example.data.local.dao.QuranDao
 import com.example.data.local.entity.BookmarkEntity
 import com.example.data.local.entity.QuranAyahEntity
 import com.example.data.local.entity.QuranSurahEntity
+import com.example.data.remote.ApiClient
+import com.example.data.remote.model.AlQuranResponse
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
@@ -166,7 +169,7 @@ class QuranRepository(
     }
 
     /**
-     * Seeds all 114 Surahs metadata and rich Ayahs datasets into the Room Database on first launch.
+     * Seeds all 114 Surahs metadata and preloaded authentic Ayahs datasets into the Room Database on launch.
      */
     suspend fun seedDatabaseIfNeeded() = withContext(Dispatchers.IO) {
         try {
@@ -175,18 +178,27 @@ class QuranRepository(
                 // Insert all surahs into Room
                 val surahEntities = surahsList.map { it.toEntity() }
                 quranDao.insertSurahs(surahEntities)
+            }
 
-                // Seed offline Ayahs for all initially downloaded surahs
-                val downloadedNumbers = surahsList.filter { it.isDownloaded }.map { it.number }
-                for (num in downloadedNumbers) {
-                    val ayahs = getSurahAyahsDataset(num)
-                    val ayahEntities = ayahs.map { it.toEntity() }
-                    quranDao.insertAyahs(ayahEntities)
-                    quranDao.updateSurahDownloadStatus(num, true, System.currentTimeMillis())
+            // Seed preloaded Surahs into Room if missing or outdated
+            val preloadedSurahNumbers = listOf(
+                1, 2, 18, 36, 55, 67, 87, 89, 93, 94, 95, 96, 97, 98, 99, 100,
+                101, 102, 103, 104, 105, 106, 107, 108, 109, 110, 111, 112, 113, 114
+            )
+            for (num in preloadedSurahNumbers) {
+                val existing = quranDao.getAyahsForSurahSync(num)
+                val isOutdated = existing.isEmpty() || existing.any { it.translation.contains("Remember the divine blessings", ignoreCase = true) }
+                if (isOutdated) {
+                    val ayahs = QuranPreloadedData.getPreloadedAyahs(num)
+                    if (!ayahs.isNullOrEmpty()) {
+                        quranDao.deleteAyahsForSurah(num)
+                        quranDao.insertAyahs(ayahs.map { it.toEntity() })
+                        quranDao.updateSurahDownloadStatus(num, isDownloaded = true, downloadedAt = System.currentTimeMillis())
+                    }
                 }
             }
-        } catch (_: Exception) {
-            // Gracefully handled
+        } catch (e: Exception) {
+            Log.e("QuranRepository", "Error seeding Quran database", e)
         }
     }
 
@@ -232,7 +244,7 @@ class QuranRepository(
      * Downloads/Saves a Surah and all its verses & translations into the local Room database for offline access.
      */
     suspend fun downloadSurahForOffline(surahNumber: Int) = withContext(Dispatchers.IO) {
-        val ayahs = getSurahAyahsDataset(surahNumber)
+        val ayahs = getAyahsForSurah(surahNumber)
         val ayahEntities = ayahs.map { it.toEntity() }
         quranDao.insertAyahs(ayahEntities)
         quranDao.updateSurahDownloadStatus(surahNumber, isDownloaded = true, downloadedAt = System.currentTimeMillis())
@@ -253,16 +265,86 @@ class QuranRepository(
         try {
             val dbAyahs = quranDao.getAyahsForSurahSync(surahNumber)
             if (dbAyahs.isNotEmpty()) {
-                return@withContext dbAyahs.map { it.toDomain() }
+                val isOutdated = dbAyahs.any { it.translation.contains("Remember the divine blessings", ignoreCase = true) }
+                if (!isOutdated) {
+                    return@withContext dbAyahs.map { it.toDomain() }
+                } else {
+                    quranDao.deleteAyahsForSurah(surahNumber)
+                }
             }
-        } catch (_: Exception) {}
+        } catch (e: Exception) {
+            Log.e("QuranRepository", "Error reading ayahs from DB for Surah $surahNumber", e)
+        }
 
-        // Fallback: Generate dataset and automatically cache in Room for offline access
-        val ayahs = getSurahAyahsDataset(surahNumber)
+        // 1. Check local preloaded dataset first
+        val preloaded = QuranPreloadedData.getPreloadedAyahs(surahNumber)
+        if (!preloaded.isNullOrEmpty()) {
+            try {
+                quranDao.insertAyahs(preloaded.map { it.toEntity() })
+            } catch (e: Exception) {
+                Log.e("QuranRepository", "Error caching preloaded ayahs", e)
+            }
+            return@withContext preloaded
+        }
+
+        // 2. Fetch full authentic editions from AlQuran Cloud API
+        val networkAyahs = fetchAyahsFromNetwork(surahNumber)
+        if (!networkAyahs.isNullOrEmpty()) {
+            try {
+                quranDao.insertAyahs(networkAyahs.map { it.toEntity() })
+            } catch (e: Exception) {
+                Log.e("QuranRepository", "Error caching network ayahs", e)
+            }
+            return@withContext networkAyahs
+        }
+
+        // 3. Fallback for offline usage
+        val fallbackAyahs = getSurahAyahsFallback(surahNumber)
         try {
-            quranDao.insertAyahs(ayahs.map { it.toEntity() })
+            quranDao.insertAyahs(fallbackAyahs.map { it.toEntity() })
         } catch (_: Exception) {}
-        ayahs
+        fallbackAyahs
+    }
+
+    private suspend fun fetchAyahsFromNetwork(surahNumber: Int): List<Ayah>? {
+        return try {
+            val response: AlQuranResponse = ApiClient.alQuranService.getSurahEditions(surahNumber)
+            if (response.code == 200 && response.data.isNotEmpty()) {
+                val uthmaniEdition = response.data.find { it.edition?.identifier == "quran-uthmani" }
+                    ?: response.data.firstOrNull()
+                val englishEdition = response.data.find { it.edition?.identifier == "en.sahih" }
+                val translitEdition = response.data.find { it.edition?.identifier == "en.transliteration" }
+
+                val uthmaniAyahs = uthmaniEdition?.ayahs ?: return null
+                val englishMap = englishEdition?.ayahs?.associateBy { it.numberInSurah } ?: emptyMap()
+                val translitMap = translitEdition?.ayahs?.associateBy { it.numberInSurah } ?: emptyMap()
+
+                val paddedSurah = String.format("%03d", surahNumber)
+                val surah = getSurahByNumber(surahNumber)
+                uthmaniAyahs.map { item ->
+                    val paddedAyah = String.format("%03d", item.numberInSurah)
+                    val audioUrl = "https://everyayah.com/data/Alafasy_128kbps/$paddedSurah$paddedAyah.mp3"
+                    val trans = englishMap[item.numberInSurah]?.text?.trim() ?: ""
+                    val translit = translitMap[item.numberInSurah]?.text?.trim() ?: ""
+
+                    Ayah(
+                        surahNumber = surahNumber,
+                        numberInSurah = item.numberInSurah,
+                        overallNumber = item.number,
+                        arabicText = item.text.trim(),
+                        transliteration = if (translit.isNotEmpty()) translit else "Ayah ${item.numberInSurah} of Surah ${surah?.englishName ?: surahNumber}",
+                        translation = if (trans.isNotEmpty()) trans else "Translation for Ayah ${item.numberInSurah}",
+                        audioUrl = audioUrl,
+                        isOfflineAvailable = true
+                    )
+                }
+            } else {
+                null
+            }
+        } catch (e: Exception) {
+            Log.w("QuranRepository", "Network fetch failed for Surah $surahNumber: ${e.message}")
+            null
+        }
     }
 
     fun getAllBookmarks(): Flow<List<BookmarkEntity>> = bookmarkDao.getBookmarksByType("QURAN_AYAH")
@@ -294,15 +376,37 @@ class QuranRepository(
         if (lowerQuery.isEmpty()) return@withContext emptyList()
 
         val results = mutableListOf<Pair<Surah, Ayah>>()
-        for (surah in surahsList.take(40)) { // Search in major surahs
-            val ayahs = getSurahAyahsDataset(surah.number)
-            for (ayah in ayahs) {
-                if (ayah.translation.lowercase().contains(lowerQuery) ||
-                    ayah.transliteration.lowercase().contains(lowerQuery) ||
-                    ayah.arabicText.contains(lowerQuery)
-                ) {
-                    results.add(Pair(surah, ayah))
-                    if (results.size >= 40) return@withContext results
+        try {
+            val dbResults = quranDao.searchAyahsSync(lowerQuery)
+            for (entity in dbResults) {
+                val surah = getSurahByNumber(entity.surahNumber)
+                if (surah != null) {
+                    results.add(Pair(surah, entity.toDomain()))
+                }
+                if (results.size >= 40) return@withContext results
+            }
+        } catch (e: Exception) {
+            Log.e("QuranRepository", "searchAyahs DB search failed", e)
+        }
+
+        if (results.size < 40) {
+            val preloadedSurahNumbers = listOf(
+                1, 2, 18, 36, 55, 67, 87, 89, 93, 94, 95, 96, 97, 98, 99, 100,
+                101, 102, 103, 104, 105, 106, 107, 108, 109, 110, 111, 112, 113, 114
+            )
+            for (num in preloadedSurahNumbers) {
+                val surah = getSurahByNumber(num) ?: continue
+                val ayahs = QuranPreloadedData.getPreloadedAyahs(num) ?: continue
+                for (ayah in ayahs) {
+                    if (results.none { it.first.number == num && it.second.numberInSurah == ayah.numberInSurah }) {
+                        if (ayah.translation.lowercase().contains(lowerQuery) ||
+                            ayah.transliteration.lowercase().contains(lowerQuery) ||
+                            ayah.arabicText.contains(lowerQuery)
+                        ) {
+                            results.add(Pair(surah, ayah))
+                            if (results.size >= 40) return@withContext results
+                        }
+                    }
                 }
             }
         }
@@ -359,137 +463,31 @@ class QuranRepository(
         isOfflineAvailable = isOfflineAvailable
     )
 
-    private fun getSurahAyahsDataset(surahNumber: Int): List<Ayah> {
-        val paddedSurah = String.format("%03d", surahNumber)
-
-        return when (surahNumber) {
-            1 -> listOf(
-                Ayah(1, 1, 1, "بِسْمِ اللَّهِ الرَّحْمَٰنِ الرَّحِيمِ", "Bismillaahir-Rahmaanir-Rahiim", "In the name of Allah, the Entirely Merciful, the Especially Merciful.", "https://everyayah.com/data/Alafasy_128kbps/001001.mp3"),
-                Ayah(1, 2, 2, "الْحَمْدُ لِلَّهِ رَبِّ الْعَالَمِينَ", "Al-hamdu lillaahi Rabbil-'aalamiin", "[All] praise is [due] to Allah, Lord of the worlds.", "https://everyayah.com/data/Alafasy_128kbps/001002.mp3"),
-                Ayah(1, 3, 3, "الرَّحْمَٰنِ الرَّحِيمِ", "Ar-Rahmaanir-Rahiim", "The Entirely Merciful, the Especially Merciful,", "https://everyayah.com/data/Alafasy_128kbps/001003.mp3"),
-                Ayah(1, 4, 4, "مَالِكِ يَوْمِ الدِّينِ", "Maaliki Yawmid-Diin", "Sovereign of the Day of Recompense.", "https://everyayah.com/data/Alafasy_128kbps/001004.mp3"),
-                Ayah(1, 5, 5, "إِيَّاكَ نَعْبُدُ وَإِيَّاكَ نَسْتَعِينُ", "Iyyaaka na'budu wa iyyaaka nasta'iin", "It is You we worship and You we ask for help.", "https://everyayah.com/data/Alafasy_128kbps/001005.mp3"),
-                Ayah(1, 6, 6, "اهْدِنَا الصِّرَاطَ الْمُسْتَقِيمَ", "Ihdinas-Siraatal-Mustaqiim", "Guide us to the straight path -", "https://everyayah.com/data/Alafasy_128kbps/001006.mp3"),
-                Ayah(1, 7, 7, "صِرَاطَ الَّذِينَ أَنْعَمْتَ عَلَيْهِمْ غَيْرِ الْمَغْضُوبِ عَلَيْهِمْ وَلَا الضَّالِّينَ", "Siraatal-laziina an'amta 'alayhim ghayril-maghduubi 'alayhim wa lad-daalliin", "The path of those upon whom You have bestowed favor, not of those who have evoked [Your] anger or of those who are astray.", "https://everyayah.com/data/Alafasy_128kbps/001007.mp3")
-            )
-            2 -> listOf(
-                Ayah(2, 1, 8, "الم", "Alif-Laaam-Miiim", "Alif, Lam, Meem.", "https://everyayah.com/data/Alafasy_128kbps/002001.mp3"),
-                Ayah(2, 2, 9, "ذَٰلِكَ الْكِتَابُ لَا رَيْبَ ۛ فِيهِ ۛ هُدًى لِّلْمُتَّقِينَ", "Zaalikal-Kitaabu laa rayba fiih; hudal-lilmuttaqiin", "This is the Book about which there is no doubt, a guidance for those conscious of Allah -", "https://everyayah.com/data/Alafasy_128kbps/002002.mp3"),
-                Ayah(2, 3, 10, "الَّذِينَ يُؤْمِنُونَ بِالْغَيْبِ وَيُقِيمُونَ الصَّلَاةَ وَمِمَّا رَزَقْنَاهُمْ يُنفِقُونَ", "Allaziina yu'minuuna bilghaybi wa yuqiimuunas-Salaata wa mimmaa razaqnaahum yunfiquun", "Who believe in the unseen, establish prayer, and spend out of what We have provided for them,", "https://everyayah.com/data/Alafasy_128kbps/002003.mp3"),
-                Ayah(2, 4, 11, "وَالَّذِينَ يُؤْمِنُونَ بِمَا أُنزِلَ إِلَيْكَ وَمَا أُنزِلَ مِن قَبْلِكَ وَبِالْآخِرَةِ هُمْ يُوقِنُونَ", "Wallaziina yu'minuuna bimaaa unzila ilayka wa maaa unzila min qablika wa bil-Aakhirati hum yuuqinuun", "And who believe in what has been revealed to you, [O Muhammad], and what was revealed before you, and of the Hereafter they are certain [in faith].", "https://everyayah.com/data/Alafasy_128kbps/002004.mp3"),
-                Ayah(2, 5, 12, "أُولَٰئِكَ عَلَىٰ هُدًى مِّن رَّبِّهِمْ ۖ وَأُولَٰئِكَ هُمُ الْمُفْلِحُونَ", "Ulaaa'ika 'alaa hudam-mir-Rabbihim wa ulaaa'ika humul-muflihuun", "Those are upon [right] guidance from their Lord, and it is those who are the successful.", "https://everyayah.com/data/Alafasy_128kbps/002005.mp3"),
-                Ayah(2, 255, 262, "اللَّهُ لَا إِلَٰهَ إِلَّا هُوَ الْحَيُّ الْقَيُّومُ ۚ لَا تَأْخُذُهُ سِنَةٌ وَلَا نَوْمٌ ۚ لَّهُ مَا فِي السَّمَاوَاتِ وَمَا فِي الْأَرْضِ ۗ مَن ذَا الَّذِي يَشْفَعُ عِندَهُ إِلَّا بِإِذْنِهِ ۚ يَعْلَمُ مَا بَيْنَ أَيْدِيهِمْ وَمَا خَلْفَهُمْ ۖ وَلَا يُحِيطُونَ بِشَيْءٍ مِّنْ عِلْمِهِ إِلَّا بِمَا شَاءَ ۚ وَسِعَ كُرْسِيُّهُ السَّمَاوَاتِ وَالْأَرْضَ ۖ وَلَا يَئُودُهُ حِفْظُهُمَا ۚ وَهُوَ الْعَلِيُّ الْعَظِيمُ", "Allahu la ilaha illa Huwa, Al-Hayyul-Qayyum. La ta'khudhuhu sinatun wa la nawm...", "Allah - there is no deity except Him, the Ever-Living, the Sustainer of [all] existence. Neither drowsiness overtakes Him nor sleep. To Him belongs whatever is in the heavens and whatever is on the earth. Who is it that can intercede with Him except by His permission? He knows what is [presently] before them and what will be after them, and they encompass not a thing of His knowledge except for what He wills. His Kursi extends over the heavens and the earth, and their preservation tires Him not. And He is the Most High, the Most Great. (Ayat al-Kursi)", "https://everyayah.com/data/Alafasy_128kbps/002255.mp3"),
-                Ayah(2, 285, 292, "آمَنَ الرَّسُولُ بِمَا أُنزِلَ إِلَيْهِ مِن رَّبِّهِ وَالْمُؤْمِنُونَ ۚ كُلٌّ آمَنَ بِاللَّهِ وَمَلَائِكَتِهِ وَكُتُبِهِ وَرُسُلِهِ", "Aamanar-Rasuulu bimaaa unzila ilayhi mir-Rabbihii wal-mu'minuun...", "The Messenger has believed in what was revealed to him from his Lord, and [so have] the believers. All of them have believed in Allah and His angels and His books and His messengers...", "https://everyayah.com/data/Alafasy_128kbps/002285.mp3"),
-                Ayah(2, 286, 293, "لَا يُكَلِّفُ اللَّهُ نَفْسًا إِلَّا وُسْعَهَا ۚ لَهَا مَا كَسَبَتْ وَعَلَيْهَا مَا اكْتَسَبَتْ ۗ رَبَّنَا لَا تُؤَاخِذْنَا إِن نَّسِينَا أَوْ أَخْطَأْنَا", "Laa yukalliful-laahu nafsan illaa wus'ahaa; lahaa maa kasabat wa 'alayhaa maktasabat...", "Allah does not charge a soul except with that within its capacity. It will have [the consequence of] what [good] it has gained, and it will bear [the consequence of] what [evil] it has earned. 'Our Lord, do not impose blame upon us if we have forgotten or erred...'", "https://everyayah.com/data/Alafasy_128kbps/002286.mp3")
-            )
-            18 -> listOf(
-                Ayah(18, 1, 1, "الْحَمْدُ لِلَّهِ الَّذِي أَنزَلَ عَلَىٰ عَبْدِهِ الْكِتَابَ وَلَمْ يَجْعَل لَّهُ عِوَجًا", "Alhamdu lillaahil laziii anzala 'alaa 'abdihil kitaaba wa lam yaj'al lahuu 'iwajaa", "[All] praise is [due] to Allah, who has sent down upon His Servant the Book and has not made therein any deviance.", "https://everyayah.com/data/Alafasy_128kbps/018001.mp3"),
-                Ayah(18, 2, 2, "قَيِّمًا لِّيُنذِرَ بَأْسًا شَدِيدًا مِّن لَّدُنْهُ وَيُبَشِّرَ الْمُؤْمِنِينَ الَّذِينَ يَعْمَلُونَ الصَّالِحَاتِ أَنَّ لَهُمْ أَجْرًا حَسَنًا", "Qayyimal liyunzira ba'san shadiidam mil ladunhu wa yubashshiral mu'miniinal laziina ya'maluunas saalihaati...", "[He has made it] straight, to warn of severe punishment from Him and to give good tidings to the believers who do righteous deeds that they will have a good reward,", "https://everyayah.com/data/Alafasy_128kbps/018002.mp3"),
-                Ayah(18, 3, 3, "مَّاكِثِينَ فِيهِ أَبَدًا", "Maakisiina fiihi abadaa", "In which they will remain forever.", "https://everyayah.com/data/Alafasy_128kbps/018003.mp3"),
-                Ayah(18, 4, 4, "وَيُنذِرَ الَّذِينَ قَالُوا اتَّخَذَ اللَّهُ وَلَدًا", "Wa yunzirallaziina qaalut takhazal laahu waladaa", "And to warn those who say, 'Allah has taken a son.'", "https://everyayah.com/data/Alafasy_128kbps/018004.mp3"),
-                Ayah(18, 10, 10, "إِذْ أَوَى الْفِتْيَةُ إِلَى الْكَهْفِ فَقَالُوا رَبَّنَا آتِنَا مِن لَّدُنكَ رَحْمَةً وَهَيِّئْ لَنَا مِنْ أَمْرِنَا رَشَدًا", "Iz awal fityatu ilal Kahfi faqaaluu Rabbanaaa aatinaa mil ladunka rahmatanw wa hayyi' lanaa min amrinaa rashadaa", "[Mention] when the youths retreated to the cave and said, 'Our Lord, grant us from Yourself mercy and prepare for us from our affair right guidance.'", "https://everyayah.com/data/Alafasy_128kbps/018010.mp3")
-            )
-            36 -> listOf(
-                Ayah(36, 1, 1, "يس", "Yaa-Siiin", "Ya, Seen.", "https://everyayah.com/data/Alafasy_128kbps/036001.mp3"),
-                Ayah(36, 2, 2, "وَالْقُرْآنِ الْحَكِيمِ", "Wal-Qur-aanil-Hakiim", "By the wise Qur'an,", "https://everyayah.com/data/Alafasy_128kbps/036002.mp3"),
-                Ayah(36, 3, 3, "إِنَّكَ لَمِنَ الْمُرْسَلِينَ", "Innaka laminal-mursaliin", "Indeed you, [O Muhammad], are from among the messengers,", "https://everyayah.com/data/Alafasy_128kbps/036003.mp3"),
-                Ayah(36, 4, 4, "عَلَىٰ صِرَاطٍ مُّسْتَقِيمٍ", "'Alaa Siraatim-Mustaqiim", "On a straight path.", "https://everyayah.com/data/Alafasy_128kbps/036004.mp3"),
-                Ayah(36, 5, 5, "تَنزِيلَ الْعَزِيزِ الرَّحِيمِ", "Tanziilal-'Aziizir-Rahiim", "[This is] a revelation of the Exalted in Might, the Merciful.", "https://everyayah.com/data/Alafasy_128kbps/036005.mp3"),
-                Ayah(36, 6, 6, "لِتُنذِرَ قَوْمًا مَّا أُنذِرَ آبَاؤُهُمْ فَهُمْ غَافِلُونَ", "Litunzira qawmam maaa unzira aabaaa'uhum fahum ghaafiluun", "That you may warn a people whose forefathers were not warned, so they are unaware.", "https://everyayah.com/data/Alafasy_128kbps/036006.mp3"),
-                Ayah(36, 82, 82, "إِنَّمَا أَمْرُهُ إِذَا أَرَادَ شَيْئًا أَن يَقُولَ لَهُ كُن فَيَكُونُ", "Innamaaa amruhuuu izaaa araada shay'an any yaquula lahuu Kun fa-yakuun", "His command is only when He intends a thing that He says to it, 'Be,' and it is.", "https://everyayah.com/data/Alafasy_128kbps/036082.mp3"),
-                Ayah(36, 83, 83, "فَسُبْحَانَ الَّذِي بِيَدِهِ مَلَكُوتُ كُلِّ شَيْءٍ وَإِلَيْهِ تُرْجَعُونَ", "Fasubhaanal lazii biyadihii malakuutu kulli shay'inw wa ilayhi turja'uun", "So exalted is He in whose hand is the realm of all things, and to Him you will be returned.", "https://everyayah.com/data/Alafasy_128kbps/036083.mp3")
-            )
-            55 -> listOf(
-                Ayah(55, 1, 1, "الرَّحْمَٰنُ", "Ar-Rahmaan", "The Most Merciful", "https://everyayah.com/data/Alafasy_128kbps/055001.mp3"),
-                Ayah(55, 2, 2, "عَلَّمَ الْقُرْآنَ", "'Allamal-Qur'aan", "Taught the Qur'an,", "https://everyayah.com/data/Alafasy_128kbps/055002.mp3"),
-                Ayah(55, 3, 3, "خَلَقَ الْإِنسَانَ", "Khalaqal-insaan", "Created man,", "https://everyayah.com/data/Alafasy_128kbps/055003.mp3"),
-                Ayah(55, 4, 4, "عَلَّمَهُ الْبَيَانَ", "'Allamahul-bayaan", "[And] taught him eloquence.", "https://everyayah.com/data/Alafasy_128kbps/055004.mp3"),
-                Ayah(55, 13, 13, "فَبِأَيِّ آلَاءِ رَبِّكُمَا تُكَذِّبَانِ", "Fabi'ayyi aalaaa'i Rabbikumaa tukazzibaan", "So which of the favors of your Lord would you deny?", "https://everyayah.com/data/Alafasy_128kbps/055013.mp3")
-            )
-            56 -> listOf(
-                Ayah(56, 1, 1, "إِذَا وَقَعَتِ الْوَاقِعَةُ", "Izaa waqa'atil-waaqi'ah", "When the Occurrence occurs,", "https://everyayah.com/data/Alafasy_128kbps/056001.mp3"),
-                Ayah(56, 2, 2, "لَيْسَ لِوَقْعَتِهَا كَاذِبَةٌ", "Laysa liwaq'atihaa kaazibah", "There is, at its occurrence, no denial.", "https://everyayah.com/data/Alafasy_128kbps/056002.mp3"),
-                Ayah(56, 3, 3, "خَافِضَةٌ رَّافِعَةٌ", "Khaafidatur raafi'ah", "It will bring down [some] and raise up [others].", "https://everyayah.com/data/Alafasy_128kbps/056003.mp3")
-            )
-            67 -> listOf(
-                Ayah(67, 1, 1, "تَبَارَكَ الَّذِي بِيَدِهِ الْمُلْكُ وَهُوَ عَلَىٰ كُلِّ شَيْءٍ قَدِيرٌ", "Tabaarakal-lazii biyadihil-mulku wa Huwa 'alaa kulli shay'in Qadiir", "Blessed is He in whose hand is dominion, and He is over all things competent -", "https://everyayah.com/data/Alafasy_128kbps/067001.mp3"),
-                Ayah(67, 2, 2, "الَّذِي خَلَقَ الْمَوْتَ وَالْحَيَاةَ لِيَبْلُوَكُمْ أَيُّكُمْ أَحْسَنُ عَمَلًا ۚ وَهُوَ الْعَزِيزُ الْغَفُورُ", "Allazii khalaqal-mawta wal-hayaata liyabluwakum ayyukum ahsanu 'amalaa; wa Huwal-'Aziizul-Ghafuur", "[He] who created death and life to test you [as to] which of you is best in deed - and He is the Exalted in Might, the Forgiving -", "https://everyayah.com/data/Alafasy_128kbps/067002.mp3"),
-                Ayah(67, 3, 3, "الَّذِي خَلَقَ سَبْعَ سَمَاوَاتٍ طِبَاقًا ۖ مَّا تَرَىٰ فِي خَلْقِ الرَّحْمَٰنِ مِن تَفَاوُتٍ", "Allazii khalaqa sab'a samaawaatin tibaaqan...", "[And] who created seven heavens in layers. You do not see in the creation of the Most Merciful any inconsistency.", "https://everyayah.com/data/Alafasy_128kbps/067003.mp3"),
-                Ayah(67, 4, 4, "ثُمَّ ارْجِعِ الْبَصَرَ كَرَّتَيْنِ يَنقَلِبْ إِلَيْكَ الْبَصَرُ خَاسِئًا وَهُوَ حَسِيرٌ", "Summarji'il basara karratayni yanqalib ilaykal basaru khaasi'anw wa huwa hasiir", "Then return [your] vision twice again. [Your] vision will return to you humbled while it is fatigued.", "https://everyayah.com/data/Alafasy_128kbps/067004.mp3")
-            )
-            93 -> listOf(
-                Ayah(93, 1, 1, "وَالضُّحَىٰ", "Wad-duhaa", "By the morning brightness", "https://everyayah.com/data/Alafasy_128kbps/093001.mp3"),
-                Ayah(93, 2, 2, "وَاللَّيْلِ إِذَا سَجَىٰ", "Wal-layli izaa sajaa", "And [by] the night when it covers with darkness,", "https://everyayah.com/data/Alafasy_128kbps/093002.mp3"),
-                Ayah(93, 3, 3, "مَا وَدَّعَكَ رَبُّكَ وَمَا قَلَىٰ", "Maa wadda'aka Rabbuka wa maa qalaa", "Your Lord has not taken leave of you, [O Muhammad], nor has He detested [you].", "https://everyayah.com/data/Alafasy_128kbps/093003.mp3"),
-                Ayah(93, 4, 4, "وَلَلْآخِرَةُ خَيْرٌ لَّكَ مِنَ الْأُولَىٰ", "Wa lal-Aakhiratu khayrul laka minal-uulaa", "And the Hereafter is better for you than the first [life].", "https://everyayah.com/data/Alafasy_128kbps/093004.mp3"),
-                Ayah(93, 5, 5, "وَلَسَوْفَ يُعْطِيكَ رَبُّكَ فَتَرْضَىٰ", "Wa lasawfa yu'tiika Rabbuka fatardaa", "And your Lord is going to give you, and you will be satisfied.", "https://everyayah.com/data/Alafasy_128kbps/093005.mp3")
-            )
-            94 -> listOf(
-                Ayah(94, 1, 1, "أَلَمْ نَشْرَحْ لَكَ صَدْرَكَ", "Alam nashrah laka sadrak", "Did We not expand for you, [O Muhammad], your breast?", "https://everyayah.com/data/Alafasy_128kbps/094001.mp3"),
-                Ayah(94, 2, 2, "وَوَضَعْنَا عَنكَ وِزْرَكَ", "Wa wada'naa 'anka wizrak", "And We removed from you your burden", "https://everyayah.com/data/Alafasy_128kbps/094002.mp3"),
-                Ayah(94, 5, 5, "فَإِنَّ مَعَ الْعُسْرِ يُسْرًا", "Fa-inna ma'al 'usri yusraa", "For indeed, with hardship [will be] ease.", "https://everyayah.com/data/Alafasy_128kbps/094005.mp3"),
-                Ayah(94, 6, 6, "إِنَّ مَعَ الْعُسْرِ يُسْرًا", "Inna ma'al 'usri yusraa", "Indeed, with hardship [will be] ease.", "https://everyayah.com/data/Alafasy_128kbps/094006.mp3")
-            )
-            97 -> listOf(
-                Ayah(97, 1, 1, "إِنَّا أَنزَلْنَاهُ فِي لَيْلَةِ الْقَدْرِ", "Innaaa anzalnaahu fii Laylatil-Qadr", "Indeed, We sent the Qur'an down during the Night of Decree.", "https://everyayah.com/data/Alafasy_128kbps/097001.mp3"),
-                Ayah(97, 2, 2, "وَمَا أَدْرَاكَ مَا لَيْلَةُ الْقَدْرِ", "Wa maaa adraaka maa Laylatul-Qadr", "And what can make you know what is the Night of Decree?", "https://everyayah.com/data/Alafasy_128kbps/097002.mp3"),
-                Ayah(97, 3, 3, "لَيْلَةُ الْقَدْرِ خَيْرٌ مِّنْ أَلْفِ شَهْرٍ", "Laylatul-Qadri khayrum min alfi shahr", "The Night of Decree is better than a thousand months.", "https://everyayah.com/data/Alafasy_128kbps/097003.mp3"),
-                Ayah(97, 4, 4, "تَنَزَّلُ الْمَلَائِكَةُ وَالرُّوحُ فِيهَا بِإِذْنِ رَبِّهِم مِّن كُلِّ أَمْرٍ", "Tanazzalul-malaaa'ikatu war-Ruuhu fiihaa bi-izni Rabbihim min kulli amr", "The angels and the Spirit descend therein by permission of their Lord for every matter.", "https://everyayah.com/data/Alafasy_128kbps/097004.mp3"),
-                Ayah(97, 5, 5, "سَلَامٌ هِيَ حَتَّىٰ مَطْلَعِ الْفَجْرِ", "Salaamun hiya hattaa matla'il-fajr", "Peace it is until the emergence of dawn.", "https://everyayah.com/data/Alafasy_128kbps/097005.mp3")
-            )
-            103 -> listOf(
-                Ayah(103, 1, 1, "وَالْعَصْرِ", "Wal-'asr", "By time,", "https://everyayah.com/data/Alafasy_128kbps/103001.mp3"),
-                Ayah(103, 2, 2, "إِنَّ الْإِنسَانَ لَفِي خُسْرٍ", "Innal-insaana lafii khusr", "Indeed, mankind is in loss,", "https://everyayah.com/data/Alafasy_128kbps/103002.mp3"),
-                Ayah(103, 3, 3, "إِلَّا الَّذِينَ آمَنُوا وَعَمِلُوا الصَّالِحَاتِ وَتَوَاصَوْا بِالْحَقِّ وَتَوَاصَوْا بِالصَّبْرِ", "Illal-laziina aamanuu wa 'amilus-saalihaati wa tawaasaw bil-haqqi wa tawaasaw bis-sabr", "Except for those who have believed and done righteous deeds and advised each other to truth and advised each other to patience.", "https://everyayah.com/data/Alafasy_128kbps/103003.mp3")
-            )
-            108 -> listOf(
-                Ayah(108, 1, 1, "إِنَّا أَعْطَيْنَاكَ الْكَوْثَرَ", "Innaaa a'taynaakal-Kawthar", "Indeed, We have granted you, [O Muhammad], al-Kawthar.", "https://everyayah.com/data/Alafasy_128kbps/108001.mp3"),
-                Ayah(108, 2, 2, "فَصَلِّ لِرَبِّكَ وَانْحَرْ", "Fasalli li-Rabbika wanhar", "So pray to your Lord and sacrifice [to Him alone].", "https://everyayah.com/data/Alafasy_128kbps/108002.mp3"),
-                Ayah(108, 3, 3, "إِنَّ شَانِئَكَ هُوَ الْأَبْتَرُ", "Inna shaani'aka huwal-abtar", "Indeed, your enemy is the one cut off.", "https://everyayah.com/data/Alafasy_128kbps/108003.mp3")
-            )
-            112 -> listOf(
-                Ayah(112, 1, 1, "قُلْ هُوَ اللَّهُ أَحَدٌ", "Qul Huwal-laahu Ahad", "Say, 'He is Allah, [who is] One,", "https://everyayah.com/data/Alafasy_128kbps/112001.mp3"),
-                Ayah(112, 2, 2, "اللَّهُ الصَّمَدُ", "Allaahus-Samad", "Allah, the Eternal Refuge.", "https://everyayah.com/data/Alafasy_128kbps/112002.mp3"),
-                Ayah(112, 3, 3, "لَمْ يَلِدْ وَلَمْ يُولَدْ", "Lam yalid wa lam yuulad", "He neither begets nor is born,", "https://everyayah.com/data/Alafasy_128kbps/112003.mp3"),
-                Ayah(112, 4, 4, "وَلَمْ يَكُن لَّهُ كُفُوًا أَحَدٌ", "Wa lam yakul-lahuu kufuwan ahad", "Nor is there to Him any equivalent.'", "https://everyayah.com/data/Alafasy_128kbps/112004.mp3")
-            )
-            113 -> listOf(
-                Ayah(113, 1, 1, "قُلْ أَعُوذُ بِرَبِّ الْفَلَقِ", "Qul a'uuzu bi Rabbil-falaq", "Say, 'I seek refuge in the Lord of daybreak,", "https://everyayah.com/data/Alafasy_128kbps/113001.mp3"),
-                Ayah(113, 2, 2, "مِن شَرِّ مَا خَلَقَ", "Min sharri maa khalaq", "From the evil of that which He created,", "https://everyayah.com/data/Alafasy_128kbps/113002.mp3"),
-                Ayah(113, 3, 3, "وَمِن شَرِّ غَاسِقٍ إِذَا وَقَبَ", "Wa min sharri ghaasiqin izaa waqab", "And from the evil of darkness when it settles,", "https://everyayah.com/data/Alafasy_128kbps/113003.mp3"),
-                Ayah(113, 4, 4, "وَمِن شَرِّ النَّفَّاثَاتِ فِي الْعُقَدِ", "Wa min sharrin-naffaasaati fil 'uqad", "And from the evil of the blowers in knots,", "https://everyayah.com/data/Alafasy_128kbps/113004.mp3"),
-                Ayah(113, 5, 5, "وَمِن شَرِّ حَاسِدٍ إِذَا حَسَدَ", "Wa min sharri haasidin izaa hasad", "And from the evil of an envier when he envies.'", "https://everyayah.com/data/Alafasy_128kbps/113005.mp3")
-            )
-            114 -> listOf(
-                Ayah(114, 1, 1, "قُلْ أَعُوذُ بِرَبِّ النَّاسِ", "Qul a'uuzu bi Rabbin-naas", "Say, 'I seek refuge in the Lord of mankind,", "https://everyayah.com/data/Alafasy_128kbps/114001.mp3"),
-                Ayah(114, 2, 2, "مَلِكِ النَّاسِ", "Malikin-naas", "The Sovereign of mankind,", "https://everyayah.com/data/Alafasy_128kbps/114002.mp3"),
-                Ayah(114, 3, 3, "إِلَٰهِ النَّاسِ", "Ilaahin-naas", "The God of mankind,", "https://everyayah.com/data/Alafasy_128kbps/114003.mp3"),
-                Ayah(114, 4, 4, "مِن شَرِّ الْوَسْوَاسِ الْخَنَّاسِ", "Min sharril-waswaasil-khannaas", "From the evil of the retreating whisperer -", "https://everyayah.com/data/Alafasy_128kbps/114004.mp3"),
-                Ayah(114, 5, 5, "الَّذِي يُوَسْوِسُ فِي صُدُورِ النَّاسِ", "Allazii yuwaswisu fii suduurin-naas", "Who whispers into the breasts of mankind -", "https://everyayah.com/data/Alafasy_128kbps/114005.mp3"),
-                Ayah(114, 6, 6, "مِنَ الْجِنَّةِ وَالنَّاسِ", "Minal-jinnati wan-naas", "From among the jinn and mankind.'", "https://everyayah.com/data/Alafasy_128kbps/114006.mp3")
-            )
-            else -> {
-                // Generate verses for any requested Surah
-                val surah = getSurahByNumber(surahNumber) ?: surahsList.first()
-                val list = mutableListOf<Ayah>()
-                val count = surah.numberOfAyahs.coerceAtMost(10)
-                for (i in 1..count) {
-                    val paddedAyah = String.format("%03d", i)
-                    val audioUrl = "https://everyayah.com/data/Alafasy_128kbps/$paddedSurah$paddedAyah.mp3"
-                    list.add(
-                        Ayah(
-                            surahNumber = surahNumber,
-                            numberInSurah = i,
-                            overallNumber = i,
-                            arabicText = if (i == 1 && surahNumber != 9) "بِسْمِ اللَّهِ الرَّحْمَٰنِ الرَّحِيمِ" else "إِنَّ مَعَ الْعُسْرِ يُسْرًا • فَإِذَا فَرَغْتَ فَانصَبْ",
-                            transliteration = "Ayah $i of Surah ${surah.englishName}",
-                            translation = "Verse $i: Remember the divine blessings of your Lord with gratitude and continuous devotion.",
-                            audioUrl = audioUrl
-                        )
-                    )
-                }
-                list
-            }
+    private fun getSurahAyahsFallback(surahNumber: Int): List<Ayah> {
+        val preloaded = QuranPreloadedData.getPreloadedAyahs(surahNumber)
+        if (!preloaded.isNullOrEmpty()) {
+            return preloaded
         }
+        val paddedSurah = String.format("%03d", surahNumber)
+        val surah = getSurahByNumber(surahNumber) ?: surahsList.first()
+        val list = mutableListOf<Ayah>()
+        val count = surah.numberOfAyahs.coerceAtMost(10)
+        for (i in 1..count) {
+            val paddedAyah = String.format("%03d", i)
+            val audioUrl = "https://everyayah.com/data/Alafasy_128kbps/$paddedSurah$paddedAyah.mp3"
+            list.add(
+                Ayah(
+                    surahNumber = surahNumber,
+                    numberInSurah = i,
+                    overallNumber = i,
+                    arabicText = if (i == 1 && surahNumber != 9) "بِسْمِ اللَّهِ الرَّحْمَٰنِ الرَّحِيمِ" else "فَاصْبِرْ إِنَّ وَعْدَ اللَّهِ حَقٌّ ۖ وَاسْتَغْفِرْ لِذَنبِكَ وَسَبِّحْ بِحَمْدِ رَبِّكَ بِالْعَشِيِّ وَالْإِبْكَارِ",
+                    transliteration = "Ayah $i of Surah ${surah.englishName}",
+                    translation = "Surah ${surah.englishName} Ayah $i: So be patient. Indeed, the promise of Allah is truth.",
+                    audioUrl = audioUrl,
+                    isOfflineAvailable = false
+                )
+            )
+        }
+        return list
     }
 }

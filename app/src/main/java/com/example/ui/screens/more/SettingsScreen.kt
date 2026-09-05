@@ -11,6 +11,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -761,7 +762,7 @@ fun SettingsScreen(
                             ) {
                                 if (!hasNotif) {
                                     Button(
-                                        onClick = { showPermissionDialog = true },
+                                        onClick = { permissionManager.openNotificationSettings(context) },
                                         colors = ButtonDefaults.buttonColors(containerColor = safaColors.goldPrimary),
                                         shape = RoundedCornerShape(10.dp),
                                         modifier = Modifier.weight(1f).height(38.dp)
@@ -777,6 +778,72 @@ fun SettingsScreen(
                                         modifier = Modifier.weight(1f).height(38.dp)
                                     ) {
                                         Text("Grant Exact Alarm", color = SafaNavyDark, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                                    }
+                                }
+                            }
+                        }
+
+                        if (isFajrEnabled) {
+                            val nextFajrInfo = remember(settings) {
+                                try {
+                                    val notifMgr = (context.applicationContext as com.example.IslamicApp).prayerNotificationManager
+                                    notifMgr.getNextScheduledFajrInfo(null)
+                                } catch (e: Exception) {
+                                    null
+                                }
+                            }
+
+                            if (nextFajrInfo != null) {
+                                Surface(
+                                    shape = RoundedCornerShape(8.dp),
+                                    color = safaColors.goldPrimary.copy(alpha = 0.08f),
+                                    border = BorderStroke(1.dp, safaColors.goldBorder.copy(alpha = 0.25f)),
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            Text(
+                                                text = if (nextFajrInfo.isTomorrow) "Scheduled for Tomorrow" else "Scheduled for Today",
+                                                style = MaterialTheme.typography.labelSmall,
+                                                fontWeight = FontWeight.Bold,
+                                                color = safaColors.goldPrimary
+                                            )
+                                            Text(
+                                                text = "Fajr at ${nextFajrInfo.timeStr} • ${if (nextFajrInfo.isExact) "Exact Alarm Clock" else "Doze Idle Alarm"}",
+                                                style = MaterialTheme.typography.bodySmall,
+                                                fontSize = 11.sp,
+                                                color = safaColors.textSecondary
+                                            )
+                                        }
+
+                                        Button(
+                                            onClick = {
+                                                try {
+                                                    val notifMgr = (context.applicationContext as com.example.IslamicApp).prayerNotificationManager
+                                                    notifMgr.scheduleScheduledTestAlarm(10)
+                                                    android.widget.Toast.makeText(
+                                                        context,
+                                                        "Test alarm scheduled for 10 seconds from now. Lock or close Safa to verify!",
+                                                        android.widget.Toast.LENGTH_LONG
+                                                    ).show()
+                                                } catch (e: Exception) {
+                                                    // ignore
+                                                }
+                                            },
+                                            colors = ButtonDefaults.buttonColors(
+                                                containerColor = safaColors.goldPrimary.copy(alpha = 0.15f),
+                                                contentColor = safaColors.goldPrimary
+                                            ),
+                                            shape = RoundedCornerShape(8.dp),
+                                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                                            modifier = Modifier.height(32.dp)
+                                        ) {
+                                            Text("Test (10s)", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                        }
                                     }
                                 }
                             }

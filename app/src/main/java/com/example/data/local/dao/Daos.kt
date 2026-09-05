@@ -169,5 +169,8 @@ interface QuranDao {
 
     @Query("SELECT * FROM quran_ayahs WHERE translation LIKE '%' || :query || '%' OR transliteration LIKE '%' || :query || '%' OR arabicText LIKE '%' || :query || '%' LIMIT 50")
     fun searchAyahs(query: String): Flow<List<QuranAyahEntity>>
+
+    @Query("SELECT * FROM quran_ayahs WHERE translation LIKE '%' || :query || '%' OR transliteration LIKE '%' || :query || '%' OR arabicText LIKE '%' || :query || '%' LIMIT 50")
+    suspend fun searchAyahsSync(query: String): List<QuranAyahEntity>
 }
 
