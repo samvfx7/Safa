@@ -645,6 +645,7 @@ fun SettingsScreen(
             item {
                 val hasExactAlarm = permState.hasExactAlarmPermission
                 val hasNotif = permState.hasNotificationPermission
+                val hasFullScreen = permState.hasFullScreenIntentPermission
                 val isFajrEnabled = settings.notifyFajr
 
                 Card(
@@ -655,7 +656,7 @@ fun SettingsScreen(
                     colors = CardDefaults.cardColors(
                         containerColor = when {
                             !isFajrEnabled -> MaterialTheme.colorScheme.surface
-                            !hasNotif || !hasExactAlarm -> Color(0xFF2C1E08)
+                            !hasNotif || !hasExactAlarm || !hasFullScreen -> Color(0xFF2C1E08)
                             else -> safaColors.goldGlow.copy(alpha = 0.2f)
                         }
                     ),
@@ -663,7 +664,7 @@ fun SettingsScreen(
                         1.dp,
                         when {
                             !isFajrEnabled -> safaColors.navyBorder.copy(alpha = 0.3f)
-                            !hasNotif || !hasExactAlarm -> Color(0xFFE5A638)
+                            !hasNotif || !hasExactAlarm || !hasFullScreen -> Color(0xFFE5A638)
                             else -> safaColors.goldPrimary.copy(alpha = 0.5f)
                         }
                     )
@@ -689,7 +690,7 @@ fun SettingsScreen(
                                         .background(
                                             when {
                                                 !isFajrEnabled -> safaColors.textSecondary.copy(alpha = 0.2f)
-                                                !hasNotif || !hasExactAlarm -> Color(0xFFE5A638).copy(alpha = 0.2f)
+                                                !hasNotif || !hasExactAlarm || !hasFullScreen -> Color(0xFFE5A638).copy(alpha = 0.2f)
                                                 else -> safaColors.goldPrimary.copy(alpha = 0.2f)
                                             },
                                             CircleShape
@@ -701,7 +702,7 @@ fun SettingsScreen(
                                         contentDescription = null,
                                         tint = when {
                                             !isFajrEnabled -> safaColors.textSecondary
-                                            !hasNotif || !hasExactAlarm -> Color(0xFFE5A638)
+                                            !hasNotif || !hasExactAlarm || !hasFullScreen -> Color(0xFFE5A638)
                                             else -> safaColors.goldPrimary
                                         },
                                         modifier = Modifier.size(18.dp)
@@ -720,7 +721,7 @@ fun SettingsScreen(
                                 shape = RoundedCornerShape(8.dp),
                                 color = when {
                                     !isFajrEnabled -> safaColors.textSecondary.copy(alpha = 0.15f)
-                                    !hasNotif || !hasExactAlarm -> Color(0xFFE5A638).copy(alpha = 0.2f)
+                                    !hasNotif || !hasExactAlarm || !hasFullScreen -> Color(0xFFE5A638).copy(alpha = 0.2f)
                                     else -> safaColors.goldPrimary.copy(alpha = 0.2f)
                                 }
                             ) {
@@ -729,14 +730,15 @@ fun SettingsScreen(
                                         !isFajrEnabled -> "Disabled"
                                         !hasNotif -> "No Notif Perm"
                                         !hasExactAlarm -> "No Exact Alarm"
-                                        else -> "🟢 OS Scheduled"
+                                        !hasFullScreen -> "No Full Screen"
+                                        else -> "🟢 Full-Screen Ready"
                                     },
                                     modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
                                     style = MaterialTheme.typography.labelSmall,
                                     fontWeight = FontWeight.Bold,
                                     color = when {
                                         !isFajrEnabled -> safaColors.textSecondary
-                                        !hasNotif || !hasExactAlarm -> Color(0xFFE5A638)
+                                        !hasNotif || !hasExactAlarm || !hasFullScreen -> Color(0xFFE5A638)
                                         else -> safaColors.goldPrimary
                                     }
                                 )
@@ -746,28 +748,29 @@ fun SettingsScreen(
                         Text(
                             text = when {
                                 !isFajrEnabled -> "Fajr alarm is toggled off. Enable below to receive Adhan calls."
-                                !hasNotif -> "Notifications are disabled for Safa. Grant permission so your device can ring at Fajr time."
+                                !hasNotif -> "Notification permission (POST_NOTIFICATIONS) is denied. The Fajr alarm cannot display or sound without notification access."
                                 !hasExactAlarm -> "Exact Alarms permission is required on Android 12+ to ring reliably while phone is sleeping."
-                                else -> "Fajr alarm is scheduled via Android AlarmManager (AlarmClock mode). It will trigger even when app is closed or phone is idle."
+                                !hasFullScreen -> "Full-screen alarm access is required for the dedicated full-screen Fajr alarm screen to display over the lock screen on Android 14+."
+                                else -> "Fajr alarm is configured with full-screen intents via Android AlarmManager (AlarmClock mode). It will launch the dedicated alarm activity even when app is closed or screen is locked."
                             },
                             style = MaterialTheme.typography.bodySmall,
                             color = safaColors.textSecondary,
                             lineHeight = 18.sp
                         )
 
-                        if (isFajrEnabled && (!hasNotif || !hasExactAlarm)) {
-                            Row(
+                        if (isFajrEnabled && (!hasNotif || !hasExactAlarm || !hasFullScreen)) {
+                            Column(
                                 modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                verticalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
                                 if (!hasNotif) {
                                     Button(
                                         onClick = { permissionManager.openNotificationSettings(context) },
                                         colors = ButtonDefaults.buttonColors(containerColor = safaColors.goldPrimary),
                                         shape = RoundedCornerShape(10.dp),
-                                        modifier = Modifier.weight(1f).height(38.dp)
+                                        modifier = Modifier.fillMaxWidth().height(38.dp)
                                     ) {
-                                        Text("Enable Notifs", color = SafaNavyDark, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                                        Text("Enable Notifications", color = SafaNavyDark, fontWeight = FontWeight.Bold, fontSize = 12.sp)
                                     }
                                 }
                                 if (!hasExactAlarm) {
@@ -775,9 +778,19 @@ fun SettingsScreen(
                                         onClick = { permissionManager.openExactAlarmSettings(context) },
                                         colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFE5A638)),
                                         shape = RoundedCornerShape(10.dp),
-                                        modifier = Modifier.weight(1f).height(38.dp)
+                                        modifier = Modifier.fillMaxWidth().height(38.dp)
                                     ) {
-                                        Text("Grant Exact Alarm", color = SafaNavyDark, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                                        Text("Grant Exact Alarm Permission", color = SafaNavyDark, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                                    }
+                                }
+                                if (!hasFullScreen) {
+                                    Button(
+                                        onClick = { permissionManager.openFullScreenIntentSettings(context) },
+                                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFE5A638)),
+                                        shape = RoundedCornerShape(10.dp),
+                                        modifier = Modifier.fillMaxWidth().height(38.dp)
+                                    ) {
+                                        Text("Grant Full-Screen Alarm Access", color = SafaNavyDark, fontWeight = FontWeight.Bold, fontSize = 12.sp)
                                     }
                                 }
                             }

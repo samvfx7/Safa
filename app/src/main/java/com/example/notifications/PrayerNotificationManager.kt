@@ -14,6 +14,7 @@ import android.media.RingtoneManager
 import android.os.Build
 import android.util.Log
 import androidx.core.content.ContextCompat
+import com.example.FajrAlarmActivity
 import com.example.MainActivity
 import com.example.data.local.entity.PrayerEntity
 import com.example.data.repository.AppSettings
@@ -198,9 +199,10 @@ class PrayerNotificationManager(
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
-        val showIntent = Intent(context, MainActivity::class.java).apply {
+        val showIntent = Intent(context, FajrAlarmActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
-            putExtra("START_DESTINATION", "fajr_alarm")
+            putExtra(PrayerAlarmReceiver.EXTRA_PRAYER_NAME, "Fajr")
+            putExtra(PrayerAlarmReceiver.EXTRA_PRAYER_TIME_STRING, targetTimeStr)
         }
         val showPendingIntent = PendingIntent.getActivity(
             context,
@@ -404,9 +406,10 @@ class PrayerNotificationManager(
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
-        val showIntent = Intent(context, MainActivity::class.java).apply {
+        val showIntent = Intent(context, FajrAlarmActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
-            putExtra("START_DESTINATION", "fajr_alarm?isTest=true")
+            putExtra(PrayerAlarmReceiver.EXTRA_PRAYER_NAME, "Fajr")
+            putExtra(PrayerAlarmReceiver.EXTRA_IS_TEST, true)
         }
         val showPendingIntent = PendingIntent.getActivity(
             context,

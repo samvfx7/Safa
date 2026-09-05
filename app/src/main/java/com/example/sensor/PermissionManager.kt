@@ -28,6 +28,7 @@ data class AppPermissionState(
     val hasNotificationPermission: Boolean = false,
     val hasCameraPermission: Boolean = false,
     val hasExactAlarmPermission: Boolean = true,
+    val hasFullScreenIntentPermission: Boolean = true,
     val isInitialPromptShown: Boolean = false
 )
 
@@ -104,6 +105,13 @@ class PermissionManager(private val context: Context) {
             true
         }
 
+        val hasFullScreenIntent = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as? android.app.NotificationManager
+            notificationManager?.canUseFullScreenIntent() ?: true
+        } else {
+            true
+        }
+
         val isShown = prefs.getBoolean("has_prompted_initial_permissions", false)
 
         val state = AppPermissionState(
@@ -111,6 +119,7 @@ class PermissionManager(private val context: Context) {
             hasNotificationPermission = hasNotification,
             hasCameraPermission = hasCamera,
             hasExactAlarmPermission = hasExactAlarm,
+            hasFullScreenIntentPermission = hasFullScreenIntent,
             isInitialPromptShown = isShown
         )
         _permissionState.value = state
@@ -166,6 +175,22 @@ class PermissionManager(private val context: Context) {
         } else {
             openAppSettings(context)
         }
+    }
+
+    fun openFullScreenIntentSettings(context: Context) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            try {
+                val intent = Intent(Settings.ACTION_MANAGE_APP_USE_FULL_SCREEN_INTENT).apply {
+                    data = Uri.parse("package:${context.packageName}")
+                    flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                }
+                context.startActivity(intent)
+                return
+            } catch (e: Exception) {
+                // Fallback to app settings
+            }
+        }
+        openAppSettings(context)
     }
 
     /**

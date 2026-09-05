@@ -188,5 +188,8 @@ class FajrNotificationSystemTest {
         assertTrue("Must have Open Safa action", actionTitles.contains("Open Safa"))
         assertTrue("Must have Prayer Times action", actionTitles.contains("Prayer Times"))
         assertTrue("Must have Make Wudu action", actionTitles.contains("Make Wudu (Snooze)"))
+
+        // Verify fullScreenIntent
+        assertNotNull("Fajr notification must have fullScreenIntent set", notif.fullScreenIntent)
     }
 }

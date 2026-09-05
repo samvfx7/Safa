@@ -13,6 +13,7 @@ import android.os.PowerManager
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
+import com.example.FajrAlarmActivity
 import com.example.MainActivity
 import com.example.R
 import com.example.data.local.NoorDatabase
@@ -135,7 +136,25 @@ class PrayerAlarmReceiver : BroadcastReceiver() {
             else -> "$prayerName • $displayTime\nTake a mindful break to offer your prayer on time."
         }
 
-        // Main Tap Action: Opens Fajr Alarm screen or Prayer Times
+        // Main Tap Action & Full Screen Intent
+        val fullScreenIntent = Intent(context, FajrAlarmActivity::class.java).apply {
+            action = ACTION_FAJR_FULL_SCREEN_ALARM
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or
+                    Intent.FLAG_ACTIVITY_NO_USER_ACTION or
+                    Intent.FLAG_ACTIVITY_SINGLE_TOP
+            putExtra(EXTRA_PRAYER_NAME, prayerName)
+            putExtra(EXTRA_PRAYER_TIME_STRING, displayTime)
+            putExtra(EXTRA_IS_TEST, isTest)
+            putExtra(EXTRA_IS_SNOOZE, isSnooze)
+            putExtra(EXTRA_NOTIFICATION_ID, notificationId)
+        }
+        val fullScreenPendingIntent = PendingIntent.getActivity(
+            context,
+            notificationId + 50,
+            fullScreenIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
         val targetDestination = if (isFajr) "fajr_alarm" else "prayer_times"
         val mainIntent = Intent(context, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
@@ -160,17 +179,21 @@ class PrayerAlarmReceiver : BroadcastReceiver() {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
-        // Action 2: Open Safa
-        val openSafaIntent = Intent(context, MainActivity::class.java).apply {
-            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
-            putExtra("START_DESTINATION", "fajr_alarm")
+        // Action 2: Open Safa Alarm UI / Prayer Times
+        val openSafaPendingIntent = if (isFajr) {
+            fullScreenPendingIntent
+        } else {
+            val openSafaIntent = Intent(context, MainActivity::class.java).apply {
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+                putExtra("START_DESTINATION", "prayer_times")
+            }
+            PendingIntent.getActivity(
+                context,
+                notificationId + 20,
+                openSafaIntent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
         }
-        val openSafaPendingIntent = PendingIntent.getActivity(
-            context,
-            notificationId + 20,
-            openSafaIntent,
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-        )
 
         // Action 3: View Prayer Times
         val timesIntent = Intent(context, MainActivity::class.java).apply {
@@ -198,7 +221,6 @@ class PrayerAlarmReceiver : BroadcastReceiver() {
             )
             .setAutoCancel(true)
             .setOngoing(false) // Dismissible by user swipe or dismiss button
-            .setContentIntent(mainPendingIntent)
             .setPriority(NotificationCompat.PRIORITY_MAX)
             .setCategory(NotificationCompat.CATEGORY_ALARM)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
@@ -206,6 +228,13 @@ class PrayerAlarmReceiver : BroadcastReceiver() {
             .addAction(0, "Dismiss", dismissPendingIntent)
             .addAction(0, "Open Safa", openSafaPendingIntent)
             .addAction(0, "Prayer Times", timesPendingIntent)
+
+        if (isFajr) {
+            builder.setFullScreenIntent(fullScreenPendingIntent, true)
+            builder.setContentIntent(fullScreenPendingIntent)
+        } else {
+            builder.setContentIntent(mainPendingIntent)
+        }
 
         // For Fajr: Also provide "I'm making Wudu (Snooze 10m)"
         if (isFajr && !isSnooze) {
@@ -280,6 +309,7 @@ class PrayerAlarmReceiver : BroadcastReceiver() {
         const val TAG = "SafaFajrNotification"
 
         const val ACTION_FAJR_ALARM = "com.example.notifications.ACTION_FAJR_ALARM"
+        const val ACTION_FAJR_FULL_SCREEN_ALARM = "com.example.notifications.ACTION_FAJR_FULL_SCREEN_ALARM"
         const val ACTION_SNOOZE_WUDU = "com.example.notifications.ACTION_SNOOZE_WUDU"
         const val ACTION_DISMISS_NOTIFICATION = "com.example.notifications.ACTION_DISMISS_NOTIFICATION"
 
