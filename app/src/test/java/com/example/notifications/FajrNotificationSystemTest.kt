@@ -186,8 +186,8 @@ class FajrNotificationSystemTest {
         val actionTitles = actions.map { it.title.toString() }
         assertTrue("Must have Dismiss action", actionTitles.contains("Dismiss"))
         assertTrue("Must have Open Safa action", actionTitles.contains("Open Safa"))
-        assertTrue("Must have Prayer Times action", actionTitles.contains("Prayer Times"))
-        assertTrue("Must have Make Wudu action", actionTitles.contains("Make Wudu (Snooze)"))
+        assertTrue("Must have Make Wudu action", actionTitles.contains("Make Wudu"))
+        assertTrue("Must have Remind Later action", actionTitles.contains("Remind Later (10m)"))
 
         // Verify fullScreenIntent
         assertNotNull("Fajr notification must have fullScreenIntent set", notif.fullScreenIntent)

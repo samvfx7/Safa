@@ -11,6 +11,7 @@ import android.content.pm.PackageManager
 import android.os.Build
 import android.os.PowerManager
 import android.util.Log
+import android.widget.Toast
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
 import com.example.FajrAlarmActivity
@@ -52,8 +53,8 @@ class PrayerAlarmReceiver : BroadcastReceiver() {
             return
         }
 
-        // 2. Handle snooze action
-        if (action == ACTION_SNOOZE_WUDU) {
+        // 2. Handle Remind Later / Snooze action
+        if (action == ACTION_REMIND_LATER || action == ACTION_SNOOZE_WUDU) {
             handleSnooze(context, prayerName, intent.getIntExtra(EXTRA_NOTIFICATION_ID, PrayerNotificationManager.NOTIFICATION_ID_FAJR))
             wakeLock?.let { if (it.isHeld) it.release() }
             return
@@ -224,32 +225,52 @@ class PrayerAlarmReceiver : BroadcastReceiver() {
             .setPriority(NotificationCompat.PRIORITY_MAX)
             .setCategory(NotificationCompat.CATEGORY_ALARM)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
-            // Useful, reliable actions
-            .addAction(0, "Dismiss", dismissPendingIntent)
-            .addAction(0, "Open Safa", openSafaPendingIntent)
-            .addAction(0, "Prayer Times", timesPendingIntent)
 
         if (isFajr) {
             builder.setFullScreenIntent(fullScreenPendingIntent, true)
             builder.setContentIntent(fullScreenPendingIntent)
-        } else {
-            builder.setContentIntent(mainPendingIntent)
-        }
 
-        // For Fajr: Also provide "I'm making Wudu (Snooze 10m)"
-        if (isFajr && !isSnooze) {
+            // Direct Wudu flow intent from notification
+            val wuduIntent = Intent(context, FajrAlarmActivity::class.java).apply {
+                action = ACTION_FAJR_FULL_SCREEN_ALARM
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK or
+                        Intent.FLAG_ACTIVITY_NO_USER_ACTION or
+                        Intent.FLAG_ACTIVITY_SINGLE_TOP
+                putExtra(EXTRA_PRAYER_NAME, prayerName)
+                putExtra(EXTRA_PRAYER_TIME_STRING, displayTime)
+                putExtra(EXTRA_IS_TEST, isTest)
+                putExtra(EXTRA_IS_SNOOZE, isSnooze)
+                putExtra(EXTRA_START_STATE, FajrAlarmFlowState.WUDU.name)
+                putExtra(EXTRA_NOTIFICATION_ID, notificationId)
+            }
+            val wuduPendingIntent = PendingIntent.getActivity(
+                context,
+                notificationId + 40,
+                wuduIntent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+
             val snoozeIntent = Intent(context, PrayerAlarmReceiver::class.java).apply {
-                action = ACTION_SNOOZE_WUDU
+                action = ACTION_REMIND_LATER
                 putExtra(EXTRA_PRAYER_NAME, prayerName)
                 putExtra(EXTRA_NOTIFICATION_ID, notificationId)
             }
             val snoozePendingIntent = PendingIntent.getBroadcast(
                 context,
-                notificationId + 40,
+                notificationId + 45,
                 snoozeIntent,
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
             )
-            builder.addAction(0, "Make Wudu (Snooze)", snoozePendingIntent)
+
+            builder.addAction(0, "Dismiss", dismissPendingIntent)
+            builder.addAction(0, "Open Safa", openSafaPendingIntent)
+            builder.addAction(0, "Make Wudu", wuduPendingIntent)
+            builder.addAction(0, "Remind Later (10m)", snoozePendingIntent)
+        } else {
+            builder.setContentIntent(mainPendingIntent)
+            builder.addAction(0, "Dismiss", dismissPendingIntent)
+            builder.addAction(0, "Open Safa", openSafaPendingIntent)
+            builder.addAction(0, "Prayer Times", timesPendingIntent)
         }
 
         try {
@@ -267,13 +288,7 @@ class PrayerAlarmReceiver : BroadcastReceiver() {
         }
 
         scheduleSnoozeAlarm(context, prayerName, delayMinutes = 10, isTest = false)
-
-        // Launch MainActivity directly to Wudu Timer
-        val activityIntent = Intent(context, MainActivity::class.java).apply {
-            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
-            putExtra("START_DESTINATION", "wudu_timer")
-        }
-        context.startActivity(activityIntent)
+        Toast.makeText(context, "Fajr reminder set for 10 minutes from now ⏰", Toast.LENGTH_SHORT).show()
     }
 
     private fun autoRescheduleNextAlarms(context: Context, isFajr: Boolean) {
@@ -310,6 +325,7 @@ class PrayerAlarmReceiver : BroadcastReceiver() {
 
         const val ACTION_FAJR_ALARM = "com.example.notifications.ACTION_FAJR_ALARM"
         const val ACTION_FAJR_FULL_SCREEN_ALARM = "com.example.notifications.ACTION_FAJR_FULL_SCREEN_ALARM"
+        const val ACTION_REMIND_LATER = "com.example.notifications.ACTION_REMIND_LATER"
         const val ACTION_SNOOZE_WUDU = "com.example.notifications.ACTION_SNOOZE_WUDU"
         const val ACTION_DISMISS_NOTIFICATION = "com.example.notifications.ACTION_DISMISS_NOTIFICATION"
 
@@ -317,6 +333,7 @@ class PrayerAlarmReceiver : BroadcastReceiver() {
         const val EXTRA_PRAYER_TIME_MILLIS = "PRAYER_TIME_MILLIS"
         const val EXTRA_PRAYER_TIME_STRING = "PRAYER_TIME_STRING"
         const val EXTRA_PRAYER_DATE_STRING = "PRAYER_DATE_STRING"
+        const val EXTRA_START_STATE = "START_STATE"
         const val EXTRA_IS_REMINDER = "IS_REMINDER"
         const val EXTRA_IS_SNOOZE = "IS_SNOOZE"
         const val EXTRA_IS_TEST = "IS_TEST"

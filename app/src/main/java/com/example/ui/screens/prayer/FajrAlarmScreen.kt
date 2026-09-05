@@ -264,7 +264,7 @@ fun FajrAlarmScreen(
         finishAndDismiss()
     }
 
-    fun handleWuduSnooze() {
+    fun handleWuduStart() {
         audioPlayer.stop()
         audioPlaying = false
         if (isTestAlarm) {
@@ -286,15 +286,21 @@ fun FajrAlarmScreen(
                 )
             )
         }
+        isWuduTimerMode = true
+        isScanningMode = false
+    }
+
+    fun handleRemindLater() {
+        audioPlayer.stop()
+        audioPlaying = false
         PrayerAlarmReceiver.scheduleSnoozeAlarm(
             context = context,
             prayerName = "Fajr",
             delayMinutes = 10,
             isTest = isTestAlarm
         )
-        Toast.makeText(context, "Alarm snoozed for 10 minutes. Wudu timer active 💧", Toast.LENGTH_SHORT).show()
-        isWuduTimerMode = true
-        isScanningMode = false
+        Toast.makeText(context, "Fajr reminder set for 10 minutes from now ⏰", Toast.LENGTH_SHORT).show()
+        onDismiss()
     }
 
     Surface(
@@ -372,11 +378,11 @@ fun FajrAlarmScreen(
                 alarmVolume = alarmVolume,
                 onSuccess = { color, conf -> handleScanSuccess(color, conf) },
                 onFailAttempt = { handleScanFailed() },
-                onWuduSnooze = { handleWuduSnooze() },
+                onWuduSnooze = { handleWuduStart() },
                 onCancelScan = { isScanningMode = false }
             )
         } else if (isWuduTimerMode) {
-            // Live Wudu Timer View: counts down & up, shows Sunnah steps, and prominent Scan Prayer Mat button
+            // Live Wudu Timer View: counts down & up, shows Sunnah steps, and prominent Continue button
             FajrWuduLiveTimerView(
                 snoozeTotalSeconds = 600,
                 onScanPrayerMat = { startScanning() },
@@ -400,8 +406,9 @@ fun FajrAlarmScreen(
                 audioError = audioError,
                 alarmVolume = alarmVolume,
                 scanAttempts = scanAttempts,
+                onMakeWudu = { handleWuduStart() },
+                onRemindLater = { handleRemindLater() },
                 onStartScan = { startScanning() },
-                onWuduSnooze = { handleWuduSnooze() },
                 onClose = { finishAndDismiss() }
             )
         }
@@ -428,8 +435,9 @@ private fun FajrAlarmRingingView(
     audioError: String? = null,
     alarmVolume: Float,
     scanAttempts: Int,
+    onMakeWudu: () -> Unit,
+    onRemindLater: () -> Unit,
     onStartScan: () -> Unit,
-    onWuduSnooze: () -> Unit,
     onClose: () -> Unit
 ) {
     val safaColors = LocalSafaColors.current
@@ -562,9 +570,9 @@ private fun FajrAlarmRingingView(
 
             Text(
                 text = if (isTestAlarm)
-                    "Testing production alarm pipeline & audio stream. Scan prayer mat or press Stop Test."
+                    "Testing production alarm pipeline & audio stream. Select an option below to proceed."
                 else
-                    "Adhan Playing • Scan your prayer mat to turn off alarm",
+                    "Fajr time has arrived • Rise to meet your Lord in peace",
                 style = MaterialTheme.typography.bodyMedium,
                 color = safaColors.textSecondary,
                 textAlign = TextAlign.Center
@@ -594,50 +602,80 @@ private fun FajrAlarmRingingView(
             modifier = Modifier.fillMaxWidth(),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
+            // Primary Action: "I'm going to make Wudu"
             Button(
-                onClick = onStartScan,
+                onClick = onMakeWudu,
                 colors = ButtonDefaults.buttonColors(containerColor = safaColors.goldPrimary),
                 shape = RoundedCornerShape(SafaSpacing.pillRadius),
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(56.dp)
-                    .testTag("scan_prayer_mat_button")
+                    .testTag("wudu_start_button")
             ) {
-                Icon(Icons.Default.CameraAlt, contentDescription = null, tint = SafaNavyDark)
+                Icon(
+                    imageVector = Icons.Default.WaterDrop,
+                    contentDescription = null,
+                    tint = SafaNavyDark,
+                    modifier = Modifier.size(22.dp)
+                )
                 Spacer(modifier = Modifier.width(8.dp))
                 Text(
-                    text = "Scan Prayer Mat to Dismiss",
+                    text = "I’m going to make Wudu",
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold,
                     color = SafaNavyDark
                 )
             }
 
+            // Secondary Action: "Remind me later"
             OutlinedButton(
-                onClick = onWuduSnooze,
+                onClick = onRemindLater,
                 colors = ButtonDefaults.outlinedButtonColors(
                     containerColor = Color.Transparent,
                     contentColor = safaColors.goldPrimary
                 ),
-                border = BorderStroke(1.5.dp, safaColors.goldPrimary),
+                border = BorderStroke(1.2.dp, safaColors.goldPrimary),
                 shape = RoundedCornerShape(SafaSpacing.pillRadius),
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(52.dp)
-                    .testTag("wudu_snooze_button")
+                    .height(50.dp)
+                    .testTag("remind_later_button")
             ) {
                 Icon(
-                    imageVector = Icons.Default.WaterDrop,
+                    imageVector = Icons.Default.Alarm,
                     contentDescription = null,
                     tint = safaColors.goldPrimary,
-                    modifier = Modifier.size(20.dp)
+                    modifier = Modifier.size(18.dp)
                 )
                 Spacer(modifier = Modifier.width(8.dp))
                 Text(
-                    text = "Im going to make wudu",
-                    style = MaterialTheme.typography.titleMedium,
+                    text = "Remind me later",
+                    style = MaterialTheme.typography.titleSmall,
                     fontWeight = FontWeight.SemiBold,
                     color = safaColors.goldPrimary
+                )
+            }
+
+            // Scan Prayer Mat optional
+            OutlinedButton(
+                onClick = onStartScan,
+                colors = ButtonDefaults.outlinedButtonColors(
+                    containerColor = safaColors.goldPrimary.copy(alpha = 0.05f),
+                    contentColor = safaColors.textSecondary
+                ),
+                border = BorderStroke(1.dp, safaColors.goldBorder.copy(alpha = 0.35f)),
+                shape = RoundedCornerShape(SafaSpacing.pillRadius),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(44.dp)
+                    .testTag("scan_prayer_mat_button")
+            ) {
+                Icon(Icons.Default.CameraAlt, contentDescription = null, tint = safaColors.textSecondary, modifier = Modifier.size(16.dp))
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = "Verify with Prayer Mat Scan",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = safaColors.textSecondary
                 )
             }
 
@@ -1256,28 +1294,57 @@ fun FajrWuduLiveTimerView(
             }
         }
 
-        // Prominent SCAN PRAYER MAT button (Requested by user)
+        // Prominent "I'm back • Continue to Prayer" button
         Button(
-            onClick = onScanPrayerMat,
+            onClick = onDismissAlarm,
             colors = ButtonDefaults.buttonColors(containerColor = safaColors.goldPrimary),
             shape = RoundedCornerShape(SafaSpacing.pillRadius),
             modifier = Modifier
                 .fillMaxWidth()
                 .height(56.dp)
-                .testTag("scan_prayer_mat_from_wudu_button")
+                .testTag("wudu_im_back_button")
         ) {
             Icon(
-                imageVector = Icons.Default.CameraAlt,
+                imageVector = Icons.Default.ArrowForward,
                 contentDescription = null,
                 tint = SafaNavyDark,
                 modifier = Modifier.size(24.dp)
             )
             Spacer(modifier = Modifier.width(10.dp))
             Text(
-                text = "Scan Prayer Mat",
+                text = "I’m back • Continue to Prayer",
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.Bold,
                 color = SafaNavyDark
+            )
+        }
+
+        // Optional SCAN PRAYER MAT button
+        OutlinedButton(
+            onClick = onScanPrayerMat,
+            colors = ButtonDefaults.outlinedButtonColors(
+                containerColor = safaColors.goldPrimary.copy(alpha = 0.05f),
+                contentColor = safaColors.goldPrimary
+            ),
+            border = BorderStroke(1.dp, safaColors.goldBorder.copy(alpha = 0.4f)),
+            shape = RoundedCornerShape(SafaSpacing.pillRadius),
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(48.dp)
+                .testTag("scan_prayer_mat_from_wudu_button")
+        ) {
+            Icon(
+                imageVector = Icons.Default.CameraAlt,
+                contentDescription = null,
+                tint = safaColors.goldPrimary,
+                modifier = Modifier.size(20.dp)
+            )
+            Spacer(modifier = Modifier.width(8.dp))
+            Text(
+                text = "Verify on Prayer Mat",
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = FontWeight.SemiBold,
+                color = safaColors.goldPrimary
             )
         }
 
