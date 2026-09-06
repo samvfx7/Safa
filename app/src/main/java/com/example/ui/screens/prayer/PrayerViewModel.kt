@@ -76,7 +76,32 @@ class PrayerViewModel(application: Application) : AndroidViewModel(application) 
 
     fun loadData(forceRefresh: Boolean = false) {
         viewModelScope.launch {
-            _uiState.value = _uiState.value.copy(isLoading = true, errorMessage = null)
+            val currentEntity = _uiState.value.prayerEntity
+            val settingsVal = settingsRepository.settingsState.value
+            val now = Calendar.getInstance()
+            val targetTz = currentEntity?.timezone?.let { java.util.TimeZone.getTimeZone(it) } ?: java.util.TimeZone.getDefault()
+            val tzDateFormat = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.getDefault()).apply { timeZone = targetTz }
+            val todayStr = tzDateFormat.format(now.time)
+            
+            val isStale = currentEntity != null && (
+                currentEntity.date != todayStr ||
+                kotlin.math.abs(currentEntity.latitude - settingsVal.latitude) > 0.001 ||
+                kotlin.math.abs(currentEntity.longitude - settingsVal.longitude) > 0.001 ||
+                currentEntity.calculationMethod != settingsVal.calculationMethodName
+            )
+
+            if (isStale) {
+                _uiState.value = _uiState.value.copy(
+                    prayerEntity = null,
+                    prayerItems = emptyList(),
+                    nextPrayerInfo = null,
+                    isLoading = true,
+                    errorMessage = null
+                )
+            } else {
+                _uiState.value = _uiState.value.copy(isLoading = true, errorMessage = null)
+            }
+            
             val result = prayerRepository.refreshPrayerTimes(forceRefresh)
 
             result.onSuccess { entity ->
@@ -125,12 +150,22 @@ class PrayerViewModel(application: Application) : AndroidViewModel(application) 
                 val entity = _uiState.value.prayerEntity
                 if (entity != null) {
                     val now = Calendar.getInstance()
-                    val nextInfo = prayerRepository.calculateNextPrayer(entity, now)
-                    val items = prayerRepository.buildPrayerItems(entity, _uiState.value.todayLog, now)
-                    _uiState.value = _uiState.value.copy(
-                        nextPrayerInfo = nextInfo,
-                        prayerItems = items
-                    )
+                    val targetTz = java.util.TimeZone.getTimeZone(entity.timezone)
+                    val tzDateFormat = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.getDefault()).apply {
+                        timeZone = targetTz
+                    }
+                    val todayStr = tzDateFormat.format(now.time)
+                    
+                    if (entity.date != todayStr) {
+                        loadData(forceRefresh = false)
+                    } else {
+                        val nextInfo = prayerRepository.calculateNextPrayer(entity, now)
+                        val items = prayerRepository.buildPrayerItems(entity, _uiState.value.todayLog, now)
+                        _uiState.value = _uiState.value.copy(
+                            nextPrayerInfo = nextInfo,
+                            prayerItems = items
+                        )
+                    }
                 }
             }
         }

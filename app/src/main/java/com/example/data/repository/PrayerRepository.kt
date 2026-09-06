@@ -63,7 +63,12 @@ class PrayerRepository(
 
             val cached = prayerDao.getPrayerTimesForDate(today).firstOrNull()
             if (cached != null && !force) {
-                return@withContext Result.success(cached)
+                val isSameLocation = kotlin.math.abs(cached.latitude - settings.latitude) < 0.001 && 
+                                     kotlin.math.abs(cached.longitude - settings.longitude) < 0.001
+                val isSameMethod = cached.calculationMethod == settings.calculationMethodName
+                if (isSameLocation && isSameMethod) {
+                    return@withContext Result.success(cached)
+                }
             }
 
             val methodId = if (settings.calculationMethodId == 99) 3 else settings.calculationMethodId
