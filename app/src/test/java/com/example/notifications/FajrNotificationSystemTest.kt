@@ -192,4 +192,57 @@ class FajrNotificationSystemTest {
         // Verify fullScreenIntent
         assertNotNull("Fajr notification must have fullScreenIntent set", notif.fullScreenIntent)
     }
+
+    @Test
+    fun fajrAlarmStateManager_silenceAndEnterWudu_updatesStateAndDismissesNotification() {
+        val stateManager = FajrAlarmStateManager(context)
+        stateManager.transitionTo(FajrAlarmFlowState.ALARM_RINGING)
+        assertEquals(FajrAlarmFlowState.ALARM_RINGING, stateManager.getSavedState())
+
+        // 1. Post a notification
+        val receiver = PrayerAlarmReceiver()
+        val notifIntent = Intent(context, PrayerAlarmReceiver::class.java).apply {
+            action = PrayerAlarmReceiver.ACTION_FAJR_ALARM
+            putExtra(PrayerAlarmReceiver.EXTRA_PRAYER_NAME, "Fajr")
+            putExtra(PrayerAlarmReceiver.EXTRA_PRAYER_TIME_STRING, "05:15")
+        }
+        receiver.onReceive(context, notifIntent)
+        assertTrue(shadowNotificationManager.allNotifications.isNotEmpty())
+
+        // 2. Call silenceAndEnterWudu
+        stateManager.silenceAndEnterWudu(null, PrayerNotificationManager.NOTIFICATION_ID_FAJR)
+
+        // 3. Verify state transitioned to WUDU and notification was dismissed
+        assertEquals(FajrAlarmFlowState.WUDU, stateManager.getSavedState())
+        assertTrue(stateManager.isWuduActive())
+        assertTrue(stateManager.getWuduStartTime() > 0)
+        assertEquals("Notification should be dismissed upon entering Wudu", 0, shadowNotificationManager.allNotifications.size)
+    }
+
+    @Test
+    fun prayerAlarmReceiver_actionMakeWudu_transitionsStateAndDismissesNotification() {
+        val stateManager = FajrAlarmStateManager(context)
+        stateManager.transitionTo(FajrAlarmFlowState.ALARM_RINGING)
+
+        // 1. Post a notification
+        val receiver = PrayerAlarmReceiver()
+        val notifIntent = Intent(context, PrayerAlarmReceiver::class.java).apply {
+            action = PrayerAlarmReceiver.ACTION_FAJR_ALARM
+            putExtra(PrayerAlarmReceiver.EXTRA_PRAYER_NAME, "Fajr")
+            putExtra(PrayerAlarmReceiver.EXTRA_PRAYER_TIME_STRING, "05:15")
+        }
+        receiver.onReceive(context, notifIntent)
+        assertTrue(shadowNotificationManager.allNotifications.isNotEmpty())
+
+        // 2. Receive ACTION_MAKE_WUDU broadcast
+        val wuduIntent = Intent(context, PrayerAlarmReceiver::class.java).apply {
+            action = PrayerAlarmReceiver.ACTION_MAKE_WUDU
+            putExtra(PrayerAlarmReceiver.EXTRA_NOTIFICATION_ID, PrayerNotificationManager.NOTIFICATION_ID_FAJR)
+        }
+        receiver.onReceive(context, wuduIntent)
+
+        // 3. Verify state is WUDU and notification is gone
+        assertEquals(FajrAlarmFlowState.WUDU, stateManager.getSavedState())
+        assertEquals(0, shadowNotificationManager.allNotifications.size)
+    }
 }

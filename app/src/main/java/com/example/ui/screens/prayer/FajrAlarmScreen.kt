@@ -103,6 +103,8 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 import android.widget.Toast
+import androidx.compose.runtime.DisposableEffect
+import com.example.notifications.FajrAlarmStateManager
 import com.example.notifications.PrayerAlarmReceiver
 import com.example.data.repository.FajrAlarmTestDiagnostics
 import com.example.data.repository.FajrAlarmTestResult
@@ -123,10 +125,11 @@ fun FajrAlarmScreen(
     val safaColors = LocalSafaColors.current
 
     val audioPlayer = remember { AudioPlayerHelper(context) }
+    val stateManager = remember { FajrAlarmStateManager(context) }
     val matDetector = remember { PrayerMatDetector() }
 
     var isScanningMode by remember { mutableStateOf(false) }
-    var isWuduTimerMode by remember { mutableStateOf(false) }
+    var isWuduTimerMode by remember { mutableStateOf(stateManager.isWuduActive()) }
     var showPermissionDialog by remember { mutableStateOf(false) }
     var scanAttempts by remember { mutableIntStateOf(0) }
     var alarmVolume by remember { mutableFloatStateOf(0.6f) }
@@ -138,6 +141,12 @@ fun FajrAlarmScreen(
     var audioPlaying by remember { mutableStateOf(false) }
     var audioError by remember { mutableStateOf<String?>(null) }
     var resolvedSoundName by remember { mutableStateOf(settingsState.fajrAlarmSound) }
+
+    DisposableEffect(Unit) {
+        onDispose {
+            audioPlayer.stop()
+        }
+    }
 
     fun startScanning() {
         if (!permState.hasCameraPermission) {
@@ -165,36 +174,41 @@ fun FajrAlarmScreen(
         }
     }
 
-    // Start full screen Adhan alarm with selected sound
-    LaunchedEffect(settingsState.fajrAlarmSound, settingsState.fajrCustomSoundUri) {
-        audioPlayer.playAdhanAlarm(
-            soundName = settingsState.fajrAlarmSound,
-            customUri = settingsState.fajrCustomSoundUri,
-            volume = alarmVolume,
-            onDiagnosticResult = { success, error, resolved ->
-                soundLoaded = success
-                audioPlaying = success
-                audioError = error
-                resolvedSoundName = resolved
+    // Start full screen Adhan alarm with selected sound only when active ringing
+    LaunchedEffect(settingsState.fajrAlarmSound, settingsState.fajrCustomSoundUri, isWuduTimerMode, isMatDetected) {
+        if (!isWuduTimerMode && !isMatDetected) {
+            audioPlayer.playAdhanAlarm(
+                soundName = settingsState.fajrAlarmSound,
+                customUri = settingsState.fajrCustomSoundUri,
+                volume = alarmVolume,
+                onDiagnosticResult = { success, error, resolved ->
+                    soundLoaded = success
+                    audioPlaying = success
+                    audioError = error
+                    resolvedSoundName = resolved
 
-                if (isTestAlarm) {
-                    FajrAlarmTestDiagnostics.updateResult(
-                        FajrAlarmTestResult(
-                            isSuccess = success,
-                            soundName = settingsState.fajrAlarmSound,
-                            soundResolved = resolved,
-                            alarmTriggered = true,
-                            alarmUiOpened = true,
-                            soundLoaded = success,
-                            audioPlaying = success,
-                            alarmVolumePercent = (alarmVolume * 100).toInt(),
-                            errorMessage = error,
-                            isDismissed = false
+                    if (isTestAlarm) {
+                        FajrAlarmTestDiagnostics.updateResult(
+                            FajrAlarmTestResult(
+                                isSuccess = success,
+                                soundName = settingsState.fajrAlarmSound,
+                                soundResolved = resolved,
+                                alarmTriggered = true,
+                                alarmUiOpened = true,
+                                soundLoaded = success,
+                                audioPlaying = success,
+                                alarmVolumePercent = (alarmVolume * 100).toInt(),
+                                errorMessage = error,
+                                isDismissed = false
+                            )
                         )
-                    )
+                    }
                 }
-            }
-        )
+            )
+        } else {
+            audioPlayer.stop()
+            audioPlaying = false
+        }
     }
 
     fun finishAndDismiss() {
@@ -265,7 +279,7 @@ fun FajrAlarmScreen(
     }
 
     fun handleWuduStart() {
-        audioPlayer.stop()
+        stateManager.silenceAndEnterWudu(audioPlayer)
         audioPlaying = false
         if (isTestAlarm) {
             val currentResult = FajrAlarmTestDiagnostics.latestResult.value
@@ -293,6 +307,7 @@ fun FajrAlarmScreen(
     fun handleRemindLater() {
         audioPlayer.stop()
         audioPlaying = false
+        stateManager.resetState()
         PrayerAlarmReceiver.scheduleSnoozeAlarm(
             context = context,
             prayerName = "Fajr",

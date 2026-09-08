@@ -53,7 +53,17 @@ class PrayerAlarmReceiver : BroadcastReceiver() {
             return
         }
 
-        // 2. Handle Remind Later / Snooze action
+        // 2. Handle Make Wudu action broadcast
+        if (action == ACTION_MAKE_WUDU) {
+            val notificationId = intent.getIntExtra(EXTRA_NOTIFICATION_ID, PrayerNotificationManager.NOTIFICATION_ID_FAJR)
+            val stateManager = FajrAlarmStateManager(context)
+            stateManager.silenceAndEnterWudu(null, notificationId)
+            Log.d(TAG, "Fajr alarm silenced for Wudu via action broadcast (id=$notificationId)")
+            wakeLock?.let { if (it.isHeld) it.release() }
+            return
+        }
+
+        // 3. Handle Remind Later / Snooze action
         if (action == ACTION_REMIND_LATER || action == ACTION_SNOOZE_WUDU) {
             handleSnooze(context, prayerName, intent.getIntExtra(EXTRA_NOTIFICATION_ID, PrayerNotificationManager.NOTIFICATION_ID_FAJR))
             wakeLock?.let { if (it.isHeld) it.release() }
@@ -337,6 +347,7 @@ class PrayerAlarmReceiver : BroadcastReceiver() {
         const val ACTION_FAJR_ALARM = "com.example.notifications.ACTION_FAJR_ALARM"
         const val ACTION_FAJR_FULL_SCREEN_ALARM = "com.example.notifications.ACTION_FAJR_FULL_SCREEN_ALARM"
         const val ACTION_REMIND_LATER = "com.example.notifications.ACTION_REMIND_LATER"
+        const val ACTION_MAKE_WUDU = "com.example.notifications.ACTION_MAKE_WUDU"
         const val ACTION_SNOOZE_WUDU = "com.example.notifications.ACTION_SNOOZE_WUDU"
         const val ACTION_DISMISS_NOTIFICATION = "com.example.notifications.ACTION_DISMISS_NOTIFICATION"
 

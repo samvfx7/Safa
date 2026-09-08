@@ -8,6 +8,7 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.os.Build
 import android.os.Bundle
+import android.os.Vibrator
 import android.view.WindowManager
 import android.widget.Toast
 import androidx.activity.ComponentActivity
@@ -140,6 +141,15 @@ class FajrAlarmActivity : ComponentActivity() {
         }
     }
 
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        val startStateExtra = intent.getStringExtra(PrayerAlarmReceiver.EXTRA_START_STATE)
+        if (startStateExtra == FajrAlarmFlowState.WUDU.name) {
+            stateManager.silenceAndEnterWudu(audioPlayer, notificationId)
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setupLockScreenFlags()
@@ -159,10 +169,14 @@ class FajrAlarmActivity : ComponentActivity() {
             if (isTest) PrayerNotificationManager.NOTIFICATION_ID_TEST else PrayerNotificationManager.NOTIFICATION_ID_FAJR
         )
 
-        // If intent specifies starting in WUDU state (e.g. from notification "Make Wudu" action)
+        // Handle initial state setup
         if (startStateExtra == FajrAlarmFlowState.WUDU.name) {
-            stateManager.transitionTo(FajrAlarmFlowState.WUDU)
-        } else if (savedInstanceState == null && !isSnooze && stateManager.getSavedState() == FajrAlarmFlowState.COMPLETED) {
+            stateManager.silenceAndEnterWudu(audioPlayer, notificationId)
+        } else if (stateManager.isWuduActive()) {
+            // Already in active Wudu flow (e.g. Activity recreation or config change)
+            audioPlayer.stop()
+        } else if (savedInstanceState == null && !isSnooze) {
+            // Fresh alarm ringing trigger
             stateManager.transitionTo(FajrAlarmFlowState.ALARM_RINGING)
         }
 
@@ -203,8 +217,7 @@ class FajrAlarmActivity : ComponentActivity() {
                         stateManager = stateManager,
                         audioPlayer = audioPlayer,
                         onMakeWudu = {
-                            audioPlayer.stop()
-                            stateManager.transitionTo(FajrAlarmFlowState.WUDU)
+                            stateManager.silenceAndEnterWudu(audioPlayer, notificationId)
                         },
                         onImBack = {
                             stateManager.transitionTo(FajrAlarmFlowState.READY_TO_PRAY)
@@ -220,6 +233,17 @@ class FajrAlarmActivity : ComponentActivity() {
                         },
                         onClose = {
                             audioPlayer.stop()
+                            try {
+                                @Suppress("DEPRECATION")
+                                (getSystemService(Context.VIBRATOR_SERVICE) as? Vibrator)?.cancel()
+                            } catch (e: Exception) { }
+                            try {
+                                val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+                                nm.cancel(notificationId)
+                                nm.cancel(PrayerNotificationManager.NOTIFICATION_ID_FAJR)
+                                nm.cancel(PrayerNotificationManager.NOTIFICATION_ID_TEST)
+                            } catch (e: Exception) { }
+                            PrayerAlarmReceiver.cancelSnoozeAlarm(this, prayerName)
                             stateManager.resetState()
                             finish()
                         }
@@ -503,7 +527,7 @@ private fun FajrAlarmLiveContent(
             label = "FajrFlowStateAnimation"
         ) { targetState ->
             when (targetState) {
-                FajrAlarmFlowState.ALARM_RINGING -> {
+                FajrAlarmFlowState.IDLE, FajrAlarmFlowState.ALARM_RINGING -> {
                     RingingStateContent(
                         prayerName = prayerName,
                         timeString = timeString,
@@ -519,6 +543,7 @@ private fun FajrAlarmLiveContent(
                     WuduStateContent(
                         wuduStartTime = stateManager.getWuduStartTime(),
                         onImBack = onImBack,
+                        onScanMat = { isScanningMode = true },
                         onRemindLater = onRemindLater
                     )
                 }
@@ -558,7 +583,7 @@ private fun FajrFlowStepIndicator(currentState: FajrAlarmFlowState) {
     val safaColors = LocalSafaColors.current
 
     val currentStep = when (currentState) {
-        FajrAlarmFlowState.ALARM_RINGING -> 1
+        FajrAlarmFlowState.IDLE, FajrAlarmFlowState.ALARM_RINGING -> 1
         FajrAlarmFlowState.WUDU -> 1
         FajrAlarmFlowState.READY_TO_PRAY -> 2
         FajrAlarmFlowState.COMPLETED -> 3
@@ -903,6 +928,7 @@ private fun RingingStateContent(
 private fun WuduStateContent(
     wuduStartTime: Long,
     onImBack: () -> Unit,
+    onScanMat: () -> Unit,
     onRemindLater: () -> Unit
 ) {
     val safaColors = LocalSafaColors.current
@@ -1014,7 +1040,7 @@ private fun WuduStateContent(
                 )
                 Spacer(modifier = Modifier.height(4.dp))
                 Text(
-                    text = "Alarm remains open and ready for your return",
+                    text = "Alarm is silenced and waiting for your return",
                     style = MaterialTheme.typography.bodySmall,
                     fontSize = 11.sp,
                     color = safaColors.textSecondary
@@ -1055,7 +1081,7 @@ private fun WuduStateContent(
 
         Spacer(modifier = Modifier.height(28.dp))
 
-        // Actions: Primary "I'm back", Secondary "Remind me later"
+        // Actions: Primary "I'm back", Secondary "Verify on Mat", Tertiary "Remind me later"
         Column(
             modifier = Modifier.fillMaxWidth(),
             verticalArrangement = Arrangement.spacedBy(12.dp)
@@ -1082,6 +1108,35 @@ private fun WuduStateContent(
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold,
                     color = SafaNavyDark
+                )
+            }
+
+            // Verify on Prayer Mat button
+            OutlinedButton(
+                onClick = onScanMat,
+                colors = ButtonDefaults.outlinedButtonColors(
+                    containerColor = safaColors.goldPrimary.copy(alpha = 0.08f),
+                    contentColor = safaColors.goldPrimary
+                ),
+                border = BorderStroke(1.dp, safaColors.goldBorder.copy(alpha = 0.4f)),
+                shape = RoundedCornerShape(SafaSpacing.pillRadius),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(50.dp)
+                    .testTag("fajr_alarm_wudu_scan_mat_button")
+            ) {
+                Icon(
+                    imageVector = Icons.Default.CameraAlt,
+                    contentDescription = null,
+                    tint = safaColors.goldPrimary,
+                    modifier = Modifier.size(20.dp)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = "Verify on Prayer Mat",
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    color = safaColors.goldPrimary
                 )
             }
 
