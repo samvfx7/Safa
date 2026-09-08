@@ -6,6 +6,18 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
+enum class FajrAlarmMode(val displayName: String) {
+    AT_FAJR("At Fajr"),
+    BEFORE_FAJR("Before Fajr"),
+    CUSTOM_TIME("Custom time");
+
+    companion object {
+        fun fromString(value: String?): FajrAlarmMode {
+            return entries.firstOrNull { it.name.equals(value, ignoreCase = true) } ?: AT_FAJR
+        }
+    }
+}
+
 data class AppSettings(
     val city: String = "London",
     val country: String = "United Kingdom",
@@ -27,7 +39,10 @@ data class AppSettings(
     val isDarkMode: Boolean = false,
     val selectedTheme: String = "safa_sand", // "safa_sand", "safa_luxury", "safa_royal", "safa_light", "classic_warm"
     val fajrAlarmSound: String = "Makkah Adhan", // "Makkah Adhan", "Madinah Adhan", "Mishary Alafasy Adhan", "Soft Morning Chime", "Custom Sound"
-    val fajrCustomSoundUri: String? = null
+    val fajrCustomSoundUri: String? = null,
+    val fajrAlarmMode: String = FajrAlarmMode.AT_FAJR.name,
+    val fajrAlarmBeforeMinutes: Int = 15,
+    val fajrAlarmCustomTime: String = "05:30"
 )
 
 class SettingsRepository(context: Context) {
@@ -60,8 +75,30 @@ class SettingsRepository(context: Context) {
             isDarkMode = prefs.getBoolean("dark_mode", false),
             selectedTheme = prefs.getString("selected_theme", "safa_sand") ?: "safa_sand",
             fajrAlarmSound = prefs.getString("fajr_alarm_sound", "Makkah Adhan") ?: "Makkah Adhan",
-            fajrCustomSoundUri = prefs.getString("fajr_custom_sound_uri", null)
+            fajrCustomSoundUri = prefs.getString("fajr_custom_sound_uri", null),
+            fajrAlarmMode = prefs.getString("fajr_alarm_mode", FajrAlarmMode.AT_FAJR.name) ?: FajrAlarmMode.AT_FAJR.name,
+            fajrAlarmBeforeMinutes = prefs.getInt("fajr_alarm_before_minutes", 15),
+            fajrAlarmCustomTime = prefs.getString("fajr_alarm_custom_time", "05:30") ?: "05:30"
         )
+    }
+
+    fun updateFajrAlarmEnabled(enabled: Boolean) {
+        updateNotificationSetting("fajr", enabled)
+    }
+
+    fun updateFajrAlarmMode(mode: FajrAlarmMode) {
+        prefs.edit().putString("fajr_alarm_mode", mode.name).apply()
+        _settingsState.value = _settingsState.value.copy(fajrAlarmMode = mode.name)
+    }
+
+    fun updateFajrAlarmBeforeMinutes(minutes: Int) {
+        prefs.edit().putInt("fajr_alarm_before_minutes", minutes).apply()
+        _settingsState.value = _settingsState.value.copy(fajrAlarmBeforeMinutes = minutes)
+    }
+
+    fun updateFajrAlarmCustomTime(timeStr: String) {
+        prefs.edit().putString("fajr_alarm_custom_time", timeStr).apply()
+        _settingsState.value = _settingsState.value.copy(fajrAlarmCustomTime = timeStr)
     }
 
     fun updateFajrAlarmSound(soundName: String, customUri: String? = null) {

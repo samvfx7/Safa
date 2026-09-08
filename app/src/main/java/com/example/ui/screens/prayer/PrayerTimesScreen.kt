@@ -343,6 +343,15 @@ fun PrayerTimesScreen(
                     )
                 }
 
+                // 5b. Upgraded Fajr Alarm Wake-up Card
+                item {
+                    FajrAlarmCard(
+                        prayerEntity = uiState.prayerEntity,
+                        onNavigateToAlarmTest = onNavigateToAlarm,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+
                 // 6. Section Header
                 item {
                     Row(

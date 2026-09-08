@@ -67,7 +67,7 @@ class PrayerAlarmReceiver : BroadcastReceiver() {
         val timeString = intent.getStringExtra(EXTRA_PRAYER_TIME_STRING) ?: ""
 
         // 3. Display the Adhan / Prayer Notification
-        showNotification(context, prayerName, isReminder, isSnooze, isTest, reminderMinutes, timeString)
+        showNotification(context, intent, prayerName, isReminder, isSnooze, isTest, reminderMinutes, timeString)
 
         // 4. Automatically reschedule the NEXT alarm (guaranteeing one authoritative scheduled alarm)
         if (!isTest && !isReminder && !isSnooze) {
@@ -79,6 +79,7 @@ class PrayerAlarmReceiver : BroadcastReceiver() {
 
     private fun showNotification(
         context: Context,
+        intent: Intent,
         prayerName: String,
         isReminder: Boolean,
         isSnooze: Boolean,
@@ -111,21 +112,31 @@ class PrayerAlarmReceiver : BroadcastReceiver() {
 
         val displayTime = if (timeString.isNotEmpty()) timeString else "05:15"
 
-        // Clear, recognizable titles as requested
+        val modeStr = intent.getStringExtra(EXTRA_ALARM_MODE)
+        val offset = intent.getIntExtra(EXTRA_ALARM_OFFSET_MINUTES, 0)
+        val fajrTime = intent.getStringExtra(EXTRA_FAJR_TIME_STRING) ?: ""
+
+        val contextDetail = when (modeStr) {
+            "BEFORE_FAJR" -> if (offset > 0 && fajrTime.isNotEmpty()) "$offset min before Fajr ($fajrTime)" else "Early wake-up"
+            "CUSTOM_TIME" -> "Custom wake-up time"
+            else -> "Fajr morning prayer"
+        }
+
+        // Clear, recognizable titles as requested (Safa — Fajr Alarm)
         val title = when {
-            isTest -> "Fajr — It's time to pray [Test Alert]"
-            isSnooze -> "Fajr — It's time to pray (Snooze Elapsed)"
-            isReminder -> "Fajr — Starts in $reminderMinutes minutes"
-            isFajr -> "Fajr — It's time to pray"
+            isTest -> "Safa — Fajr Alarm [Test Alert]"
+            isSnooze -> "Safa — Fajr Alarm (Snooze Elapsed)"
+            isReminder -> "Safa — Fajr Alarm (Starts in $reminderMinutes min)"
+            isFajr -> "Safa — Fajr Alarm"
             else -> "Time for $prayerName Prayer"
         }
 
-        // Informative concise content
+        // Informative concise content with selected alarm time and context
         val content = when {
             isTest -> "Fajr • $displayTime • Alarm and notification test triggered successfully"
             isSnooze -> "Fajr • $displayTime • 10-minute Wudu snooze elapsed. Rise for morning prayer."
             isReminder -> "Fajr begins in $reminderMinutes minutes ($displayTime). Prepare for prayer."
-            isFajr -> "Fajr • $displayTime • الصَّلَاةُ خَيْرٌ مِنَ النَّوْمِ"
+            isFajr -> "Wake up for Fajr • $displayTime ($contextDetail) • الصَّلَاةُ خَيْرٌ مِنَ النَّوْمِ"
             else -> "$prayerName • $displayTime • It's time for prayer."
         }
 
@@ -133,7 +144,7 @@ class PrayerAlarmReceiver : BroadcastReceiver() {
             isTest -> "Fajr • $displayTime\nSafa test alarm has triggered on schedule.\nAudio and high-priority notification channels are active."
             isSnooze -> "Fajr • $displayTime\nYour 10-minute Wudu timer has completed.\nBegin your prayer in peace and devotion."
             isReminder -> "Fajr • $displayTime\nFajr prayer starts in $reminderMinutes minutes.\nTake a moment to make Wudu and prepare."
-            isFajr -> "Fajr • $displayTime\nالصَّلَاةُ خَيْرٌ مِنَ النَّوْمِ — Prayer is better than sleep.\nRise to meet Allah in the peace and tranquility of dawn."
+            isFajr -> "Fajr • $displayTime ($contextDetail)\nالصَّلَاةُ خَيْرٌ مِنَ النَّوْمِ — Prayer is better than sleep.\nRise to meet Allah in the peace and tranquility of dawn."
             else -> "$prayerName • $displayTime\nTake a mindful break to offer your prayer on time."
         }
 
@@ -339,6 +350,9 @@ class PrayerAlarmReceiver : BroadcastReceiver() {
         const val EXTRA_IS_TEST = "IS_TEST"
         const val EXTRA_NOTIFICATION_ID = "NOTIFICATION_ID"
         const val EXTRA_REMINDER_MINUTES = "REMINDER_MINUTES"
+        const val EXTRA_ALARM_MODE = "EXTRA_ALARM_MODE"
+        const val EXTRA_ALARM_OFFSET_MINUTES = "EXTRA_ALARM_OFFSET_MINUTES"
+        const val EXTRA_FAJR_TIME_STRING = "EXTRA_FAJR_TIME_STRING"
 
         fun scheduleSnoozeAlarm(
             context: Context,

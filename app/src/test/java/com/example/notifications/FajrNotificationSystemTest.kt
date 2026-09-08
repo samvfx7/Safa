@@ -176,7 +176,7 @@ class FajrNotificationSystemTest {
         val title = shadowOf(notif).contentTitle.toString()
         val text = shadowOf(notif).contentText.toString()
 
-        assertEquals("Fajr — It's time to pray", title)
+        assertEquals("Safa — Fajr Alarm", title)
         assertTrue("Notification should include Fajr time", text.contains("05:15"))
         assertTrue("Notification should include الصَّلَاةُ خَيْرٌ مِنَ النَّوْمِ", text.contains("الصَّلَاةُ خَيْرٌ مِنَ النَّوْمِ"))
 

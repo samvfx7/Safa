@@ -18,6 +18,7 @@ import com.example.FajrAlarmActivity
 import com.example.MainActivity
 import com.example.data.local.entity.PrayerEntity
 import com.example.data.repository.AppSettings
+import com.example.data.repository.FajrAlarmMode
 import com.example.data.repository.SettingsRepository
 import com.example.data.util.SolarPrayerCalculator
 import java.text.SimpleDateFormat
@@ -26,13 +27,36 @@ import java.util.Date
 import java.util.Locale
 import java.util.TimeZone
 
+enum class AlarmStatusType {
+    SCHEDULED,          // 🟢 Alarm scheduled
+    OFF,                // ⚪ Alarm off
+    PERMISSION_REQUIRED,// 🟠 Permission required
+    ERROR               // 🔴 Scheduling error
+}
+
 data class ScheduledFajrInfo(
     val triggerTimeMillis: Long,
     val dateStr: String,
     val timeStr: String,
     val isTomorrow: Boolean,
     val isExact: Boolean,
-    val calculationMethod: String
+    val calculationMethod: String,
+    val mode: FajrAlarmMode = FajrAlarmMode.AT_FAJR,
+    val offsetMinutes: Int = 0,
+    val fajrTimeStr: String = "",
+    val statusType: AlarmStatusType = AlarmStatusType.SCHEDULED,
+    val summaryText: String = ""
+)
+
+internal data class FajrAlarmTarget(
+    val triggerTimeMillis: Long,
+    val targetDateStr: String,
+    val alarmTimeStr: String,
+    val fajrTimeStr: String,
+    val isTomorrow: Boolean,
+    val mode: FajrAlarmMode,
+    val offsetMinutes: Int,
+    val summaryText: String
 )
 
 class PrayerNotificationManager(
@@ -56,7 +80,7 @@ class PrayerNotificationManager(
             // Dedicated High Priority Channel for Fajr Prayer
             val fajrChannel = NotificationChannel(
                 FAJR_CHANNEL_ID,
-                "Fajr Prayer Alert",
+                "Safa — Fajr Alarm",
                 NotificationManager.IMPORTANCE_HIGH
             ).apply {
                 description = "High priority notifications and alarms for Fajr morning prayer"
@@ -67,10 +91,10 @@ class PrayerNotificationManager(
                 lockscreenVisibility = Notification.VISIBILITY_PUBLIC
                 setBypassDnd(true)
                 val audioAttributes = AudioAttributes.Builder()
-                    .setUsage(AudioAttributes.USAGE_NOTIFICATION_RINGTONE)
+                    .setUsage(AudioAttributes.USAGE_ALARM)
                     .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
                     .build()
-                setSound(RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION), audioAttributes)
+                setSound(RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM), audioAttributes)
             }
             notificationManager.createNotificationChannel(fajrChannel)
 
@@ -104,11 +128,172 @@ class PrayerNotificationManager(
     }
 
     /**
+     * Centralized target calculator for Fajr alarms.
+     * Accurately handles:
+     * - AT_FAJR (astronomical Fajr time)
+     * - BEFORE_FAJR (offset minutes before calculated Fajr)
+     * - CUSTOM_TIME (exact clock time, independent of prayer calculation)
+     * - Crossing midnight, upcoming day transitions, and timezone preservation.
+     */
+    internal fun calculateFajrAlarmTarget(
+        settings: AppSettings,
+        prayerEntity: PrayerEntity? = null,
+        forceTomorrow: Boolean = false,
+        now: Long = System.currentTimeMillis()
+    ): FajrAlarmTarget {
+        val mode = FajrAlarmMode.fromString(settings.fajrAlarmMode)
+        val tzId = prayerEntity?.timezone?.ifEmpty { TimeZone.getDefault().id } ?: TimeZone.getDefault().id
+        val tz = TimeZone.getTimeZone(tzId)
+        val calNow = Calendar.getInstance(tz).apply { timeInMillis = now }
+
+        val todayDateStr = String.format(Locale.US, "%04d-%02d-%02d",
+            calNow.get(Calendar.YEAR), calNow.get(Calendar.MONTH) + 1, calNow.get(Calendar.DAY_OF_MONTH))
+
+        val calTomorrow = Calendar.getInstance(tz).apply {
+            timeInMillis = now
+            add(Calendar.DAY_OF_YEAR, 1)
+        }
+        val tomorrowDateStr = String.format(Locale.US, "%04d-%02d-%02d",
+            calTomorrow.get(Calendar.YEAR), calTomorrow.get(Calendar.MONTH) + 1, calTomorrow.get(Calendar.DAY_OF_MONTH))
+
+        // Calculate astronomical Fajr for today & tomorrow
+        val todayFajrTimeStr = if (prayerEntity != null && prayerEntity.date == todayDateStr && prayerEntity.fajr.isNotEmpty()) {
+            cleanTime(prayerEntity.fajr)
+        } else {
+            SolarPrayerCalculator.calculateFajrTime(calNow, settings.latitude, settings.longitude, settings.calculationMethodId, tzId)
+        }
+        val todayFajrMillis = parsePrayerTimeToMillis(todayDateStr, todayFajrTimeStr, tz)
+            ?: (calNow.apply {
+                set(Calendar.HOUR_OF_DAY, 5)
+                set(Calendar.MINUTE, 15)
+                set(Calendar.SECOND, 0)
+                set(Calendar.MILLISECOND, 0)
+            }.timeInMillis)
+
+        val tomorrowFajrTimeStr = SolarPrayerCalculator.calculateFajrTime(
+            calTomorrow,
+            settings.latitude,
+            settings.longitude,
+            settings.calculationMethodId,
+            tzId
+        )
+        val tomorrowFajrMillis = parsePrayerTimeToMillis(tomorrowDateStr, tomorrowFajrTimeStr, tz)
+            ?: (calTomorrow.apply {
+                set(Calendar.HOUR_OF_DAY, 5)
+                set(Calendar.MINUTE, 15)
+                set(Calendar.SECOND, 0)
+                set(Calendar.MILLISECOND, 0)
+            }.timeInMillis)
+
+        return when (mode) {
+            FajrAlarmMode.AT_FAJR -> {
+                val isTodayPassed = forceTomorrow || (todayFajrMillis <= now)
+                val targetMillis = if (isTodayPassed) tomorrowFajrMillis else todayFajrMillis
+                val targetDateStr = if (isTodayPassed) tomorrowDateStr else todayDateStr
+                val targetTimeStr = if (isTodayPassed) tomorrowFajrTimeStr else todayFajrTimeStr
+                val isTomorrow = isTodayPassed
+                val summary = if (isTomorrow) "Tomorrow at $targetTimeStr" else "Today at $targetTimeStr"
+
+                FajrAlarmTarget(
+                    triggerTimeMillis = targetMillis,
+                    targetDateStr = targetDateStr,
+                    alarmTimeStr = targetTimeStr,
+                    fajrTimeStr = targetTimeStr,
+                    isTomorrow = isTomorrow,
+                    mode = mode,
+                    offsetMinutes = 0,
+                    summaryText = summary
+                )
+            }
+
+            FajrAlarmMode.BEFORE_FAJR -> {
+                val offsetMinutes = settings.fajrAlarmBeforeMinutes.coerceAtLeast(1)
+                val offsetMillis = offsetMinutes * 60 * 1000L
+                val todayAlarmMillis = todayFajrMillis - offsetMillis
+                val isTodayPassed = forceTomorrow || (todayAlarmMillis <= now)
+
+                val targetMillis = if (isTodayPassed) (tomorrowFajrMillis - offsetMillis) else todayAlarmMillis
+                val targetDateStr = if (isTodayPassed) tomorrowDateStr else todayDateStr
+                val isTomorrow = isTodayPassed
+
+                val alarmCal = Calendar.getInstance(tz).apply { timeInMillis = targetMillis }
+                val targetTimeStr = String.format(Locale.US, "%02d:%02d",
+                    alarmCal.get(Calendar.HOUR_OF_DAY), alarmCal.get(Calendar.MINUTE))
+                val fajrTimeStr = if (isTomorrow) tomorrowFajrTimeStr else todayFajrTimeStr
+                val dayLabel = if (isTomorrow) "Tomorrow" else "Today"
+                val summary = "$offsetMinutes min before Fajr ($dayLabel at $targetTimeStr)"
+
+                FajrAlarmTarget(
+                    triggerTimeMillis = targetMillis,
+                    targetDateStr = targetDateStr,
+                    alarmTimeStr = targetTimeStr,
+                    fajrTimeStr = fajrTimeStr,
+                    isTomorrow = isTomorrow,
+                    mode = mode,
+                    offsetMinutes = offsetMinutes,
+                    summaryText = summary
+                )
+            }
+
+            FajrAlarmMode.CUSTOM_TIME -> {
+                val parts = (settings.fajrAlarmCustomTime.ifEmpty { "05:30" }).split(":")
+                val customHour = parts.getOrNull(0)?.toIntOrNull()?.coerceIn(0, 23) ?: 5
+                val customMinute = parts.getOrNull(1)?.toIntOrNull()?.coerceIn(0, 59) ?: 30
+
+                val calCustomToday = Calendar.getInstance(tz).apply {
+                    set(Calendar.YEAR, calNow.get(Calendar.YEAR))
+                    set(Calendar.MONTH, calNow.get(Calendar.MONTH))
+                    set(Calendar.DAY_OF_MONTH, calNow.get(Calendar.DAY_OF_MONTH))
+                    set(Calendar.HOUR_OF_DAY, customHour)
+                    set(Calendar.MINUTE, customMinute)
+                    set(Calendar.SECOND, 0)
+                    set(Calendar.MILLISECOND, 0)
+                }
+
+                val isTodayPassed = forceTomorrow || (calCustomToday.timeInMillis <= now)
+                val targetMillis: Long
+                val targetDateStr: String
+                val isTomorrow: Boolean
+
+                if (isTodayPassed) {
+                    val calCustomTomorrow = Calendar.getInstance(tz).apply {
+                        timeInMillis = calCustomToday.timeInMillis
+                        add(Calendar.DAY_OF_YEAR, 1)
+                    }
+                    targetMillis = calCustomTomorrow.timeInMillis
+                    targetDateStr = tomorrowDateStr
+                    isTomorrow = true
+                } else {
+                    targetMillis = calCustomToday.timeInMillis
+                    targetDateStr = todayDateStr
+                    isTomorrow = false
+                }
+
+                val targetTimeStr = String.format(Locale.US, "%02d:%02d", customHour, customMinute)
+                val summary = if (isTomorrow) "Tomorrow at $targetTimeStr" else "Today at $targetTimeStr"
+                val fajrTimeStr = if (isTomorrow) tomorrowFajrTimeStr else todayFajrTimeStr
+
+                FajrAlarmTarget(
+                    triggerTimeMillis = targetMillis,
+                    targetDateStr = targetDateStr,
+                    alarmTimeStr = targetTimeStr,
+                    fajrTimeStr = fajrTimeStr,
+                    isTomorrow = isTomorrow,
+                    mode = mode,
+                    offsetMinutes = 0,
+                    summaryText = summary
+                )
+            }
+        }
+    }
+
+    /**
      * Authoritative scheduling for the Fajr notification.
      * Guarantees that only ONE active Fajr alarm exists in AlarmManager.
      * Correctly handles:
      * - Today's remaining Fajr time
      * - Tomorrow's calculated Fajr time (calculated for tomorrow's date, never hardcoded or +24h)
+     * - Custom wake-up times and pre-Fajr offsets
      * - Timezones, DST transitions, and clock changes
      * - Exact vs inexact fallback
      */
@@ -120,171 +305,147 @@ class PrayerNotificationManager(
             cancelAlarm(REQ_FAJR_EXACT)
             cancelAlarm(REQ_FAJR_REMINDER)
             Log.d(TAG, "Fajr reminder is disabled in user settings. Cancelled all scheduled Fajr alarms.")
-            return null
-        }
-
-        val tzId = prayerEntity?.timezone?.ifEmpty { TimeZone.getDefault().id } ?: TimeZone.getDefault().id
-        val tz = TimeZone.getTimeZone(tzId)
-        val calNow = Calendar.getInstance(tz).apply { timeInMillis = now }
-
-        val todayDateStr = String.format(Locale.US, "%04d-%02d-%02d",
-            calNow.get(Calendar.YEAR), calNow.get(Calendar.MONTH) + 1, calNow.get(Calendar.DAY_OF_MONTH))
-
-        val todayFajrTimeStr = if (prayerEntity != null && prayerEntity.date == todayDateStr && prayerEntity.fajr.isNotEmpty()) {
-            cleanTime(prayerEntity.fajr)
-        } else {
-            SolarPrayerCalculator.calculateFajrTime(calNow, settings.latitude, settings.longitude, settings.calculationMethodId, tzId)
-        }
-
-        val todayFajrMillis = parsePrayerTimeToMillis(todayDateStr, todayFajrTimeStr, tz)
-
-        val isTodayPassed = forceTomorrow || todayFajrMillis == null || (todayFajrMillis <= now)
-
-        val targetDateStr: String
-        val targetTimeStr: String
-        val targetMillis: Long
-        val isTomorrow: Boolean
-
-        if (isTodayPassed) {
-            // Target is TOMORROW.
-            // Calculate tomorrow's date calendar to properly account for astronomical shifts and DST
-            val calTomorrow = Calendar.getInstance(tz).apply {
-                timeInMillis = now
-                add(Calendar.DAY_OF_YEAR, 1)
-            }
-            targetDateStr = String.format(Locale.US, "%04d-%02d-%02d",
-                calTomorrow.get(Calendar.YEAR), calTomorrow.get(Calendar.MONTH) + 1, calTomorrow.get(Calendar.DAY_OF_MONTH))
-
-            // Compute tomorrow's calculated Fajr time using tomorrow's date!
-            targetTimeStr = SolarPrayerCalculator.calculateFajrTime(
-                calTomorrow,
-                settings.latitude,
-                settings.longitude,
-                settings.calculationMethodId,
-                tzId
+            return ScheduledFajrInfo(
+                triggerTimeMillis = 0L,
+                dateStr = "",
+                timeStr = "",
+                isTomorrow = false,
+                isExact = false,
+                calculationMethod = settings.calculationMethodName,
+                mode = FajrAlarmMode.fromString(settings.fajrAlarmMode),
+                offsetMinutes = settings.fajrAlarmBeforeMinutes,
+                fajrTimeStr = "",
+                statusType = AlarmStatusType.OFF,
+                summaryText = "Alarm off"
             )
-            targetMillis = parsePrayerTimeToMillis(targetDateStr, targetTimeStr, tz)
-                ?: (calTomorrow.apply {
-                    set(Calendar.HOUR_OF_DAY, 5)
-                    set(Calendar.MINUTE, 15)
-                    set(Calendar.SECOND, 0)
-                    set(Calendar.MILLISECOND, 0)
-                }.timeInMillis)
-            isTomorrow = true
-        } else {
-            // Target is TODAY
-            targetDateStr = todayDateStr
-            targetTimeStr = todayFajrTimeStr
-            targetMillis = todayFajrMillis
-            isTomorrow = false
         }
 
-        // Prevent duplicate alarms: ALWAYS cancel old pending alarm first
-        cancelAlarm(REQ_FAJR_EXACT)
-        cancelAlarm(REQ_FAJR_REMINDER)
+        return try {
+            val target = calculateFajrAlarmTarget(settings, prayerEntity, forceTomorrow, now)
 
-        val intent = Intent(context, PrayerAlarmReceiver::class.java).apply {
-            action = PrayerAlarmReceiver.ACTION_FAJR_ALARM
-            putExtra(PrayerAlarmReceiver.EXTRA_PRAYER_NAME, "Fajr")
-            putExtra(PrayerAlarmReceiver.EXTRA_PRAYER_TIME_MILLIS, targetMillis)
-            putExtra(PrayerAlarmReceiver.EXTRA_PRAYER_TIME_STRING, targetTimeStr)
-            putExtra(PrayerAlarmReceiver.EXTRA_PRAYER_DATE_STRING, targetDateStr)
-            putExtra(PrayerAlarmReceiver.EXTRA_IS_REMINDER, false)
-        }
+            // Prevent duplicate alarms: ALWAYS cancel old pending alarm first
+            cancelAlarm(REQ_FAJR_EXACT)
+            cancelAlarm(REQ_FAJR_REMINDER)
 
-        val pendingIntent = PendingIntent.getBroadcast(
-            context,
-            REQ_FAJR_EXACT,
-            intent,
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-        )
+            val intent = Intent(context, PrayerAlarmReceiver::class.java).apply {
+                action = PrayerAlarmReceiver.ACTION_FAJR_ALARM
+                putExtra(PrayerAlarmReceiver.EXTRA_PRAYER_NAME, "Fajr")
+                putExtra(PrayerAlarmReceiver.EXTRA_PRAYER_TIME_MILLIS, target.triggerTimeMillis)
+                putExtra(PrayerAlarmReceiver.EXTRA_PRAYER_TIME_STRING, target.alarmTimeStr)
+                putExtra(PrayerAlarmReceiver.EXTRA_PRAYER_DATE_STRING, target.targetDateStr)
+                putExtra(PrayerAlarmReceiver.EXTRA_ALARM_MODE, target.mode.name)
+                putExtra(PrayerAlarmReceiver.EXTRA_ALARM_OFFSET_MINUTES, target.offsetMinutes)
+                putExtra(PrayerAlarmReceiver.EXTRA_FAJR_TIME_STRING, target.fajrTimeStr)
+                putExtra(PrayerAlarmReceiver.EXTRA_IS_REMINDER, false)
+            }
 
-        val showIntent = Intent(context, FajrAlarmActivity::class.java).apply {
-            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
-            putExtra(PrayerAlarmReceiver.EXTRA_PRAYER_NAME, "Fajr")
-            putExtra(PrayerAlarmReceiver.EXTRA_PRAYER_TIME_STRING, targetTimeStr)
-        }
-        val showPendingIntent = PendingIntent.getActivity(
-            context,
-            REQ_FAJR_EXACT + 1000,
-            showIntent,
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-        )
+            val pendingIntent = PendingIntent.getBroadcast(
+                context,
+                REQ_FAJR_EXACT,
+                intent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
 
-        val canScheduleExact = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            alarmManager.canScheduleExactAlarms()
-        } else {
-            true
-        }
+            val showIntent = Intent(context, FajrAlarmActivity::class.java).apply {
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+                putExtra(PrayerAlarmReceiver.EXTRA_PRAYER_NAME, "Fajr")
+                putExtra(PrayerAlarmReceiver.EXTRA_PRAYER_TIME_STRING, target.alarmTimeStr)
+                putExtra(PrayerAlarmReceiver.EXTRA_ALARM_MODE, target.mode.name)
+                putExtra(PrayerAlarmReceiver.EXTRA_FAJR_TIME_STRING, target.fajrTimeStr)
+            }
+            val showPendingIntent = PendingIntent.getActivity(
+                context,
+                REQ_FAJR_EXACT + 1000,
+                showIntent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
 
-        var isExact = false
-        try {
-            if (canScheduleExact) {
-                // setAlarmClock provides highest OS priority, wakes the device while idle,
-                // and informs the system UI of the upcoming alarm
-                val clockInfo = AlarmManager.AlarmClockInfo(targetMillis, showPendingIntent)
-                alarmManager.setAlarmClock(clockInfo, pendingIntent)
-                isExact = true
+            val canScheduleExact = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                alarmManager.canScheduleExactAlarms()
             } else {
-                alarmManager.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, targetMillis, pendingIntent)
-                isExact = false
-                Log.w(TAG, "Exact alarm access unavailable. Used setAndAllowWhileIdle fallback.")
+                true
             }
-        } catch (e: SecurityException) {
-            Log.e(TAG, "SecurityException while setting AlarmClock, falling back to setAndAllowWhileIdle", e)
+
+            var isExact = false
             try {
-                alarmManager.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, targetMillis, pendingIntent)
-                isExact = false
-            } catch (fallbackError: Exception) {
-                Log.e(TAG, "Fallback alarm scheduling failed", fallbackError)
+                if (canScheduleExact) {
+                    val clockInfo = AlarmManager.AlarmClockInfo(target.triggerTimeMillis, showPendingIntent)
+                    alarmManager.setAlarmClock(clockInfo, pendingIntent)
+                    isExact = true
+                } else {
+                    alarmManager.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, target.triggerTimeMillis, pendingIntent)
+                    isExact = false
+                    Log.w(TAG, "Exact alarm access unavailable. Used setAndAllowWhileIdle fallback.")
+                }
+            } catch (e: SecurityException) {
+                Log.e(TAG, "SecurityException while setting AlarmClock, falling back to setAndAllowWhileIdle", e)
+                try {
+                    alarmManager.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, target.triggerTimeMillis, pendingIntent)
+                    isExact = false
+                } catch (fallbackError: Exception) {
+                    Log.e(TAG, "Fallback alarm scheduling failed", fallbackError)
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Unexpected error setting Fajr alarm", e)
             }
+
+            // Schedule Pre-Fajr Reminder if configured and in AT_FAJR mode
+            if (target.mode == FajrAlarmMode.AT_FAJR) {
+                val reminderMinutes = settings.reminderMinutesBefore
+                if (reminderMinutes > 0) {
+                    val reminderTimeMillis = target.triggerTimeMillis - (reminderMinutes * 60 * 1000L)
+                    if (reminderTimeMillis > now) {
+                        scheduleReminderAlarm(
+                            timeInMillis = reminderTimeMillis,
+                            prayerName = "Fajr",
+                            reminderMinutes = reminderMinutes,
+                            requestCode = REQ_FAJR_REMINDER
+                        )
+                    }
+                }
+            }
+
+            val status = if (!canScheduleExact) {
+                AlarmStatusType.PERMISSION_REQUIRED
+            } else {
+                AlarmStatusType.SCHEDULED
+            }
+
+            Log.d(TAG, "=== Safa Fajr Reminder Scheduled ===")
+            Log.d(TAG, "Mode: ${target.mode.displayName}, Target Date: ${target.targetDateStr}")
+            Log.d(TAG, "Alarm Time: ${target.alarmTimeStr}, Millis: ${target.triggerTimeMillis}")
+            Log.d(TAG, "Exact Alarm: $isExact, Status: $status")
+            Log.d(TAG, "=====================================")
+
+            ScheduledFajrInfo(
+                triggerTimeMillis = target.triggerTimeMillis,
+                dateStr = target.targetDateStr,
+                timeStr = target.alarmTimeStr,
+                isTomorrow = target.isTomorrow,
+                isExact = isExact,
+                calculationMethod = settings.calculationMethodName,
+                mode = target.mode,
+                offsetMinutes = target.offsetMinutes,
+                fajrTimeStr = target.fajrTimeStr,
+                statusType = status,
+                summaryText = target.summaryText
+            )
         } catch (e: Exception) {
-            Log.e(TAG, "Unexpected error setting Fajr alarm", e)
+            Log.e(TAG, "Error scheduling Fajr alarm", e)
+            ScheduledFajrInfo(
+                triggerTimeMillis = 0L,
+                dateStr = "",
+                timeStr = "",
+                isTomorrow = false,
+                isExact = false,
+                calculationMethod = settings.calculationMethodName,
+                mode = FajrAlarmMode.fromString(settings.fajrAlarmMode),
+                offsetMinutes = settings.fajrAlarmBeforeMinutes,
+                fajrTimeStr = "",
+                statusType = AlarmStatusType.ERROR,
+                summaryText = "Scheduling error"
+            )
         }
-
-        // Schedule Pre-Fajr Reminder if configured
-        val reminderMinutes = settings.reminderMinutesBefore
-        if (reminderMinutes > 0) {
-            val reminderTimeMillis = targetMillis - (reminderMinutes * 60 * 1000L)
-            if (reminderTimeMillis > now) {
-                scheduleReminderAlarm(
-                    timeInMillis = reminderTimeMillis,
-                    prayerName = "Fajr",
-                    reminderMinutes = reminderMinutes,
-                    requestCode = REQ_FAJR_REMINDER
-                )
-            }
-        }
-
-        val hasNotifPerm = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
-        } else {
-            true
-        }
-
-        val formattedScheduledDate = SimpleDateFormat("EEE, dd MMM yyyy HH:mm:ss z", Locale.getDefault()).apply {
-            timeZone = tz
-        }.format(Date(targetMillis))
-
-        Log.d(TAG, "=== Safa Fajr Reminder Scheduled ===")
-        Log.d(TAG, "Current Time: ${SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US).format(Date(now))}")
-        Log.d(TAG, "Target Date: $targetDateStr (isTomorrow=$isTomorrow)")
-        Log.d(TAG, "Calculated Fajr Time: $targetTimeStr ($formattedScheduledDate)")
-        Log.d(TAG, "Target Millis: $targetMillis (triggers in ${(targetMillis - now) / 1000}s)")
-        Log.d(TAG, "Exact Alarm Scheduled: $isExact (canScheduleExact=$canScheduleExact)")
-        Log.d(TAG, "Notification Permission: $hasNotifPerm")
-        Log.d(TAG, "Method: ${settings.calculationMethodName} (ID: ${settings.calculationMethodId})")
-        Log.d(TAG, "Location: ${settings.city}, ${settings.country} (${settings.latitude}, ${settings.longitude})")
-        Log.d(TAG, "=====================================")
-
-        return ScheduledFajrInfo(
-            triggerTimeMillis = targetMillis,
-            dateStr = targetDateStr,
-            timeStr = targetTimeStr,
-            isTomorrow = isTomorrow,
-            isExact = isExact,
-            calculationMethod = settings.calculationMethodName
-        )
     }
 
     /**
@@ -441,68 +602,67 @@ class PrayerNotificationManager(
     }
 
     /**
-     * Inspects the next scheduled Fajr info for UI display without changing alarm state.
+     * Inspects the next scheduled Fajr info for live UI display without altering alarm state.
      */
     fun getNextScheduledFajrInfo(prayerEntity: PrayerEntity?): ScheduledFajrInfo {
         val settings = settingsRepository.settingsState.value
-        val now = System.currentTimeMillis()
-        val tzId = prayerEntity?.timezone?.ifEmpty { TimeZone.getDefault().id } ?: TimeZone.getDefault().id
-        val tz = TimeZone.getTimeZone(tzId)
-        val calNow = Calendar.getInstance(tz).apply { timeInMillis = now }
-
-        val todayDateStr = String.format(Locale.US, "%04d-%02d-%02d",
-            calNow.get(Calendar.YEAR), calNow.get(Calendar.MONTH) + 1, calNow.get(Calendar.DAY_OF_MONTH))
-
-        val todayFajrTimeStr = if (prayerEntity != null && prayerEntity.date == todayDateStr && prayerEntity.fajr.isNotEmpty()) {
-            cleanTime(prayerEntity.fajr)
-        } else {
-            SolarPrayerCalculator.calculateFajrTime(calNow, settings.latitude, settings.longitude, settings.calculationMethodId, tzId)
-        }
-
-        val todayFajrMillis = parsePrayerTimeToMillis(todayDateStr, todayFajrTimeStr, tz)
-        val isTodayPassed = todayFajrMillis == null || (todayFajrMillis <= now)
-
-        val targetDateStr: String
-        val targetTimeStr: String
-        val targetMillis: Long
-        val isTomorrow: Boolean
-
-        if (isTodayPassed) {
-            val calTomorrow = Calendar.getInstance(tz).apply {
-                timeInMillis = now
-                add(Calendar.DAY_OF_YEAR, 1)
-            }
-            targetDateStr = String.format(Locale.US, "%04d-%02d-%02d",
-                calTomorrow.get(Calendar.YEAR), calTomorrow.get(Calendar.MONTH) + 1, calTomorrow.get(Calendar.DAY_OF_MONTH))
-            targetTimeStr = SolarPrayerCalculator.calculateFajrTime(
-                calTomorrow,
-                settings.latitude,
-                settings.longitude,
-                settings.calculationMethodId,
-                tzId
+        if (!settings.notifyFajr) {
+            return ScheduledFajrInfo(
+                triggerTimeMillis = 0L,
+                dateStr = "",
+                timeStr = "",
+                isTomorrow = false,
+                isExact = false,
+                calculationMethod = settings.calculationMethodName,
+                mode = FajrAlarmMode.fromString(settings.fajrAlarmMode),
+                offsetMinutes = settings.fajrAlarmBeforeMinutes,
+                fajrTimeStr = "",
+                statusType = AlarmStatusType.OFF,
+                summaryText = "Alarm off"
             )
-            targetMillis = parsePrayerTimeToMillis(targetDateStr, targetTimeStr, tz)
-                ?: (todayFajrMillis?.plus(24 * 60 * 60 * 1000L) ?: (now + 8 * 3600 * 1000L))
-            isTomorrow = true
-        } else {
-            targetDateStr = todayDateStr
-            targetTimeStr = todayFajrTimeStr
-            targetMillis = todayFajrMillis
-            isTomorrow = false
         }
 
-        val canScheduleExact = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            alarmManager.canScheduleExactAlarms()
-        } else true
+        return try {
+            val target = calculateFajrAlarmTarget(settings, prayerEntity, false, System.currentTimeMillis())
+            val canScheduleExact = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                alarmManager.canScheduleExactAlarms()
+            } else true
 
-        return ScheduledFajrInfo(
-            triggerTimeMillis = targetMillis,
-            dateStr = targetDateStr,
-            timeStr = targetTimeStr,
-            isTomorrow = isTomorrow,
-            isExact = canScheduleExact,
-            calculationMethod = settings.calculationMethodName
-        )
+            val status = if (!canScheduleExact) {
+                AlarmStatusType.PERMISSION_REQUIRED
+            } else {
+                AlarmStatusType.SCHEDULED
+            }
+
+            ScheduledFajrInfo(
+                triggerTimeMillis = target.triggerTimeMillis,
+                dateStr = target.targetDateStr,
+                timeStr = target.alarmTimeStr,
+                isTomorrow = target.isTomorrow,
+                isExact = canScheduleExact,
+                calculationMethod = settings.calculationMethodName,
+                mode = target.mode,
+                offsetMinutes = target.offsetMinutes,
+                fajrTimeStr = target.fajrTimeStr,
+                statusType = status,
+                summaryText = target.summaryText
+            )
+        } catch (e: Exception) {
+            Log.e(TAG, "Error computing next scheduled Fajr info", e)
+            ScheduledFajrInfo(
+                triggerTimeMillis = 0L,
+                dateStr = "",
+                timeStr = "",
+                isTomorrow = false,
+                isExact = false,
+                calculationMethod = settings.calculationMethodName,
+                mode = FajrAlarmMode.fromString(settings.fajrAlarmMode),
+                offsetMinutes = settings.fajrAlarmBeforeMinutes,
+                fajrTimeStr = "",
+                statusType = AlarmStatusType.ERROR,
+                summaryText = "Scheduling error"
+            )
+        }
     }
 
     private fun scheduleGeneralPrayerAlarm(timeInMillis: Long, prayerName: String, requestCode: Int) {

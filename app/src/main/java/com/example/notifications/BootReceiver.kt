@@ -23,6 +23,7 @@ class BootReceiver : BroadcastReceiver() {
                 action == Intent.ACTION_LOCKED_BOOT_COMPLETED ||
                 action == Intent.ACTION_MY_PACKAGE_REPLACED ||
                 action == Intent.ACTION_TIME_CHANGED ||
+                action == "android.intent.action.TIME_SET" ||
                 action == Intent.ACTION_TIMEZONE_CHANGED ||
                 action == Intent.ACTION_DATE_CHANGED ||
                 action == AlarmManager.ACTION_SCHEDULE_EXACT_ALARM_PERMISSION_STATE_CHANGED
